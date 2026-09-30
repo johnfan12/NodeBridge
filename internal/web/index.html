@@ -16,13 +16,21 @@
     </section>
     <section id="node-page" hidden>
       <div class="intro"><h1>节点维护</h1></div>
-      <section class="card"><h2>连接状态</h2><div id="local-status"></div><div id="local-forwarding" class="forwarding-controls"></div></section>
-      <section id="pair-section" class="card"><h2>配对</h2><p class="muted">粘贴 VPS 生成的配对链接。</p><form id="pair-form"><label>配对链接<textarea name="link" placeholder="nodebridge://pair/…" rows="4" required maxlength="8192" spellcheck="false"></textarea></label><button>配对并连接</button></form></section>
+      <section class="workspace local-workspace">
+        <div class="workspace-head"><h2>连接状态</h2></div>
+        <div class="workspace-body"><div id="local-status"></div><div id="local-forwarding" class="forwarding-controls"></div></div>
+        <section id="pair-section" class="workspace-section"><h2>接入控制台</h2><p class="muted">粘贴 VPS 生成的配对链接。</p><form id="pair-form"><label>配对链接<textarea name="link" placeholder="nodebridge://pair/…" rows="4" required maxlength="8192" spellcheck="false"></textarea></label><button>配对并连接</button></form></section>
+      </section>
     </section>
     <section id="dashboard" hidden>
-      <div class="intro"><h1>服务器一览</h1></div>
-      <section class="card"><div class="section-head"><h2>节点</h2><span id="node-summary" class="muted"></span></div><div id="nodes" class="node-grid"></div></section>
-      <section class="card"><h2>生成 SSH 命令</h2><form id="ssh-form" class="row"><label>服务器<select name="node" required></select></label><label>Linux 用户名<input name="username" placeholder="例如 fan" required maxlength="64" pattern="[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}"></label><button>生成命令</button></form><div id="ssh-result" hidden><div class="copy-row"><code id="ssh-command"></code><button id="copy-ssh" class="secondary">复制</button></div></div></section>
+      <div class="intro"><h1>服务器一览</h1><p class="muted">选择服务器，获取 SSH 连接命令。</p></div>
+      <section class="workspace"><div class="workspace-head"><h2>服务器</h2><span id="node-summary" class="muted"></span></div><div id="nodes" class="node-list"></div></section>
+      <dialog id="ssh-dialog" class="connection-dialog" aria-labelledby="ssh-title">
+        <div class="dialog-head"><h2 id="ssh-title">SSH 连接</h2><button id="ssh-close" type="button" class="secondary">关闭</button></div>
+        <div id="ssh-feedback" role="status" aria-live="polite" hidden></div>
+        <form id="ssh-form"><label>服务器<select name="node" required></select></label><label>Linux 用户名<input name="username" placeholder="例如 fan" required maxlength="64" pattern="[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}" autocomplete="username"></label><button type="submit">生成连接命令</button></form>
+        <div id="ssh-result" hidden><div class="copy-row"><code id="ssh-command"></code><button id="copy-ssh" type="button" class="secondary">复制</button></div></div>
+      </dialog>
     </section>
   </main>
 </body>

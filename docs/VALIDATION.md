@@ -57,3 +57,12 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 - Playwright 验证三处暂停/恢复按钮、确认提示、暂停来源展示与普通用户界面的权限。节点页面沿用 Azure 样式，390 px 宽度无横向溢出。
 - 卸载脚本在临时目录中模拟 systemd 与账号命令：验证卸载 node 保留 hub、默认保留数据与 uid、all --purge 清除两种模式及共享程序/账号、停服失败不删除文件。没有执行本机真实卸载或修改本机系统服务。
 - Linux amd64/arm64 包包含安装与卸载脚本；Release 同时提供独立脚本，README 可直接下载执行。
+
+## 界面整理（v0.1.4）
+
+- 首页合并为连续服务器列表，SSH 连接通过按行弹窗生成命令；GPU 和历史记录收进运行详情。
+- 管理页使用服务器/账号/操作记录三个页签，接入服务器和创建账号表单按需展开；本地维护页合并为一个面板。
+- 暂停与移除按钮间距实际测量：桌面 20 px，手机至少 12 px；所有操作组使用显式 gap。
+- Playwright 使用真实 hub/node 配对和三个节点记录验证列表、SSH 弹窗与 Escape、页签切换及 URL 恢复、键盘导航、账号创建、暂停恢复、普通用户权限。
+- 验证自动刷新后运行详情展开状态与键盘焦点保留；320 px 和 390 px 的首页、管理页、账号页、本机维护页及连接弹窗无页面横向溢出。
+- `make check` 和 Linux amd64/arm64 Release 构建通过。截图保存在本地 dist/ui-hub.png、ui-admin.png、ui-connect.png、ui-mobile.png、ui-admin-mobile.png、ui-node.png。

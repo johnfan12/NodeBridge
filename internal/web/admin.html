@@ -11,16 +11,30 @@
     <div id="notice" role="status" aria-live="polite" hidden></div>
     <section id="loading" class="card">正在连接…</section>
     <section id="auth" class="card compact" hidden>
-    <h1>登录</h1>
-    <form id="login-form"><label>用户名<input name="username" autocomplete="username" required maxlength="64"></label><label>密码<input name="password" type="password" autocomplete="current-password" required maxlength="72"></label><button type="submit">登录</button><button id="register-button" class="secondary" type="button" hidden>创建账号</button></form>
+      <h1>登录</h1>
+      <form id="login-form"><label>用户名<input name="username" autocomplete="username" required maxlength="64"></label><label>密码<input name="password" type="password" autocomplete="current-password" required maxlength="72"></label><button type="submit">登录</button><button id="register-button" class="secondary" type="button" hidden>创建账号</button></form>
     </section>
     <section id="admin-panel" hidden>
       <div class="intro"><h1>管理控制台</h1></div>
-      <section class="card"><h2>SSH 转发服务</h2><div id="hub-forwarding" class="forwarding-controls"></div></section>
-      <section class="card"><h2>节点管理</h2><div id="admin-nodes"></div></section>
-      <section class="card"><h2>接入新服务器</h2><form id="invite-form" class="row"><label>节点名称<input name="name" placeholder="例如 实验室服务器" required maxlength="100"></label><button>生成配对链接</button></form><div id="invite-result" hidden><div class="copy-row"><textarea id="pair-link" rows="3" readonly spellcheck="false"></textarea><button id="copy-link" class="secondary">复制链接</button></div><p id="invite-expiry" class="muted"></p><p class="muted">在节点运行 <code>nodebridge pair</code>，粘贴链接。</p></div></section>
-      <section class="card"><div class="section-head"><h2>账号管理</h2><label class="check"><input id="allow-register" type="checkbox">允许自助注册</label></div><form id="user-form" class="row"><label>用户名<input name="username" required maxlength="64"></label><label>初始密码<input name="password" type="password" required minlength="10" maxlength="72" autocomplete="new-password"></label><label class="check"><input name="admin" type="checkbox">管理员</label><button>创建账号</button></form><div class="table-wrap"><table><thead><tr><th>用户名</th><th>角色</th><th>操作</th></tr></thead><tbody id="users"></tbody></table></div></section>
-      <section class="card"><div class="section-head"><h2>最近操作</h2><button id="audit-refresh" class="secondary">刷新</button></div><div id="audit" class="audit"></div></section>
+      <section class="workspace">
+        <div class="admin-tabs" role="tablist" aria-label="管理功能">
+          <button id="tab-servers" role="tab" type="button" aria-selected="true" aria-controls="panel-servers" data-tab="servers">服务器</button>
+          <button id="tab-accounts" role="tab" type="button" aria-selected="false" aria-controls="panel-accounts" data-tab="accounts" tabindex="-1">账号</button>
+          <button id="tab-activity" role="tab" type="button" aria-selected="false" aria-controls="panel-activity" data-tab="activity" tabindex="-1">操作记录</button>
+        </div>
+        <section id="panel-servers" role="tabpanel" aria-labelledby="tab-servers">
+          <div class="workspace-head"><div><h2>已接入的服务器</h2><p id="admin-node-summary" class="muted"></p></div><button id="invite-toggle" type="button" aria-expanded="false" aria-controls="invite-section">接入服务器</button></div>
+          <section id="invite-section" class="workspace-section inline-form" hidden><h2>接入新服务器</h2><form id="invite-form" class="row"><label>节点名称<input name="name" placeholder="例如 实验室服务器" required maxlength="100"></label><button>生成配对链接</button></form><div id="invite-result" hidden><div class="copy-row"><textarea id="pair-link" rows="3" readonly spellcheck="false"></textarea><button id="copy-link" type="button" class="secondary">复制链接</button></div><p id="invite-expiry" class="muted"></p><p class="muted">在节点运行 <code>nodebridge pair</code>，粘贴链接。</p></div></section>
+          <div id="admin-nodes"></div>
+          <details class="workspace-section service-settings"><summary>全局 SSH 转发设置</summary><div id="hub-forwarding" class="forwarding-controls"></div><p class="muted">暂停将断开全部服务器的 SSH 会话，Web 控制台继续可用。</p></details>
+        </section>
+        <section id="panel-accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
+          <div class="workspace-head"><h2>账号管理</h2><div class="actions"><label class="check"><input id="allow-register" type="checkbox">允许自助注册</label><button id="user-toggle" type="button" aria-expanded="false" aria-controls="user-section">创建账号</button></div></div>
+          <section id="user-section" class="workspace-section inline-form" hidden><form id="user-form" class="row"><label>用户名<input name="username" required maxlength="64"></label><label>初始密码<input name="password" type="password" required minlength="10" maxlength="72" autocomplete="new-password"></label><label class="check"><input name="admin" type="checkbox">管理员</label><button>保存账号</button></form></section>
+          <div class="table-wrap"><table><thead><tr><th>用户名</th><th>角色</th><th>操作</th></tr></thead><tbody id="users"></tbody></table></div>
+        </section>
+        <section id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" hidden><div class="workspace-head"><h2>最近操作</h2><button id="audit-refresh" type="button" class="secondary">刷新</button></div><div id="audit" class="audit workspace-body"></div></section>
+      </section>
     </section>
   </main>
 </body>
