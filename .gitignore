@@ -1,0 +1,8 @@
+/bin/
+/dist/
+/data/
+*.db
+*.db.lock
+*.pem
+*.key
+coverage.out

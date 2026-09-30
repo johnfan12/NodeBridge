@@ -1,0 +1,120 @@
+# NodeBridge
+
+一个 Go 程序，两种运行模式，把 Servermanager 和 Clustermanager 的当前 SSH 管理功能收进一个仓库。
+
+- **hub**：部署在有公网 IP 的 VPS，提供 HTTPS 控制台、账号管理、配对和自动端口分配。
+- **node**：部署在内网服务器，主动连接 hub，转发本地 SSH，并上报节点/GPU 状态。
+- WebUI 编译进二进制；生产环境不需要 Python、Node.js、npm、FRP 或单独部署数据库。
+- 当前重构基线是两个旧仓库的 `simple-tunnel-platform` 分支。Docker 实例、资源配额和卡时计费不属于此分支，功能清单见 [迁移说明](docs/MIGRATION.md)。
+
+```mermaid
+flowchart LR
+    browser[浏览器] -->|HTTPS| hub[VPS · nodebridge hub]
+    node[内网服务器 · nodebridge node] -->|主动建立 TLS/WebSocket 连接| hub
+    ssh[SSH 客户端] -->|VPS 自动分配的端口| hub
+    hub -->|连接内的独立数据流| node
+    node -->|127.0.0.1:22| sshd[节点 SSH 服务]
+```
+
+## 从现有源码试运行
+
+开发构建需要 [Go 1.26 或更新版本](https://go.dev/dl/)。生产运行只需要 Release 中的二进制。
+
+```bash
+make build
+
+# VPS：首次启动只填写用户实际可访问的 HTTPS 地址
+./bin/nodebridge hub --public-url https://你的VPS公网IP:9443
+
+# 内网节点：另一个终端或另一台服务器，使用同一个二进制
+./bin/nodebridge node
+```
+
+VPS 控制台地址是 `https://你的VPS公网IP:9443`。首次启动自动生成随机管理员密码，账号为 `admin`；在 VPS 上读取：
+
+```bash
+cat data/hub/initial-admin.txt
+```
+
+默认生成自签 HTTPS 证书，浏览器首次访问会提示证书未被信任。启动日志显示证书 SHA-256 指纹，可以与浏览器证书详情核对。节点配对和后续连接自动校验证书指纹。登录后可以修改密码；修改初始管理员密码后，初始密码文件会删除。
+
+登录 VPS 控制台，填写节点名称并点击“生成配对链接”。在节点打开 `http://127.0.0.1:9899`，粘贴链接；没有桌面的服务器直接执行：
+
+```bash
+./bin/nodebridge pair
+# 在提示后粘贴 nodebridge://pair/... 链接并回车
+```
+
+端口分配、TLS 指纹、节点 ID 和独立认证凭证都会自动保存。链接只能使用一次，15 分钟有效。配对完成后，在 VPS 控制台选择节点和 Linux 用户名，复制 SSH 命令。
+
+## 一个命令安装服务
+
+Linux/systemd 的 Release 安装包包含 `nodebridge` 和 `install.sh`，不需要 Go 开发环境。解压后：
+
+```bash
+# VPS
+sudo ./install.sh hub --public-url https://你的VPS公网IP:9443
+
+# 内网节点
+sudo ./install.sh node
+```
+
+节点安装后执行 `nodebridge pair` 粘贴链接即可。也可以打开本地维护页面。所有服务以专用普通用户 `nodebridge` 运行，安装完成会显示首次管理员账号。
+
+从源码构建后，也可以直接安装：
+
+```bash
+sudo bash scripts/install.sh hub --public-url https://你的VPS公网IP:9443
+sudo bash scripts/install.sh node
+```
+
+网络一键下载需要先把此仓库发布到你自己的 Git 托管平台。项目已提供 GitHub Actions：推送 `v*` 标签后构建 amd64/arm64 安装包并创建 Release。当前只有本地 Git 仓库，**尚未配置远程仓库或发布下载地址**，下面是发布后的命令模板：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/你的账号/NodeBridge/main/scripts/install.sh \
+  | sudo env NODEBRIDGE_RELEASE_BASE_URL=https://github.com/你的账号/NodeBridge/releases/download/v0.1.0 \
+    bash -s -- hub --public-url https://你的VPS公网IP:9443
+```
+
+节点使用同一条安装命令，把末尾的 `hub --public-url ...` 改成 `node`。脚本自动识别 CPU 架构，并校验 Release 文件的 SHA-256。
+
+## 需要填写的配置
+
+| 场景 | 必填项 | 自动处理 |
+| --- | --- | --- |
+| 首次安装 VPS | 公网 HTTPS 地址 | 证书、管理员密码、数据库、服务 |
+| 首次安装节点 | 无 | 本地维护页、SSH 默认端口 22 |
+| 接入节点 | 粘贴一次性配对链接 | VPS 地址、证书指纹、节点凭证、公网端口 |
+| 接入更多节点 | 新的配对链接 | 节点列表和不同的固定端口 |
+
+VPS 必须放行控制台端口（默认 TCP `9443`）和 SSH 公网端口池（默认 TCP `30000–39999`）。端口池可以缩小到实际所需范围，例如 `--port-start 30000 --port-end 30009`。程序可以自动选端口，云安全组和防火墙需要由有权限的运维人员开放。
+
+节点无需公网 IP、入站端口或 API 端口映射，只需能主动访问 VPS 的控制台端口，并已有 SSH 服务。WebUI 不创建 Linux 账号；控制台账号和 Linux SSH 账号分别由控制台与节点系统管理。
+
+首次启动参数保存到 `config.json`，后续重启直接读配置。显式参数与现有配置不一致时会报错，避免修改参数却未生效。默认路径：
+
+| 数据 | 手动运行 | systemd 安装 |
+| --- | --- | --- |
+| hub | `./data/hub/` | `/var/lib/nodebridge/hub/` |
+| node | `./data/node/` | `/var/lib/nodebridge/node/` |
+
+## 已有功能
+
+- 自动配对、多节点展示、固定公网 SSH 端口自动分配与回收。
+- 节点连接状态、SSH 服务就绪状态、CPU 核数、GPU 利用率/显存/温度/功耗。
+- 每 10 秒上报状态，每 30 秒采样，保存最近 30 天在线记录。
+- 管理员预创建、登录/退出、可选自助注册、创建用户、角色修改、密码修改/重置、删除用户。
+- 普通用户查看节点和生成 SSH 命令；仅管理员可以接入/移除节点及管理账号。
+- 最多保留 1000 条账号、配对、节点管理审计；节点断连和失败详情写入运行日志。
+- 节点重连、hub 重启恢复端口、重复配对拦截、端口冲突跳过、端口池耗尽提示。
+
+## 检查与打包
+
+```bash
+make check
+make release VERSION=v0.1.0
+```
+
+检查包括 Go vet、竞态检测下的集成测试、JS 语法和脚本语法检查。集成测试启动真实 HTTPS hub、节点反向连接与本地 TCP 服务，验证大数据转发、半关闭、重连、配对原子性、端口冲突、凭证撤销、权限与证书校验。
+
+运维与恢复步骤见 [运维文档](docs/OPERATIONS.md)，协议与设计见 [架构说明](docs/ARCHITECTURE.md)。
