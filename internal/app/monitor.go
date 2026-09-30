@@ -34,7 +34,7 @@ func (h *Hub) sampleHealth(now time.Time) error {
 	h.mu.Lock()
 	for id, l := range h.live {
 		online := l.session != nil && !l.session.IsClosed() && !l.seen.IsZero() && now.Sub(l.seen) < 45*time.Second
-		snapshot[id] = health{online, online && l.status.SSHReady && l.listener != nil, l.seen}
+		snapshot[id] = health{online, online && l.status.SSHReady && l.listener != nil && !h.paused && !l.paused && !l.status.ForwardingPaused, l.seen}
 	}
 	h.mu.Unlock()
 	return h.Store.Update(func(s *store.State) error {

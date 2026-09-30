@@ -36,7 +36,9 @@ async function dashboard() {
 }
 async function logout() { await api('/api/logout', 'POST', {}); me = null; location.reload(); }
 async function refreshNodes() {
-  nodes = await api('/api/nodes');
+  const [savedNodes, forwarding] = await Promise.all([api('/api/nodes'), api('/api/forwarding')]);
+  nodes = savedNodes;
+  if (me.admin) forwardingControl('hub-forwarding', forwarding.paused, '/api/forwarding', '全部节点', refreshNodes);
   $('node-summary').textContent = `${nodes.filter(n => n.online).length} / ${nodes.length} 在线`;
   const content = $('nodes'); content.replaceChildren();
   if (!nodes.length) content.append(el('p', me.admin ? '还没有服务器。生成配对链接，接入第一台节点。' : '管理员尚未接入服务器。', 'muted'));
@@ -45,9 +47,11 @@ async function refreshNodes() {
   for (const n of nodes) {
     const option = el('option', `${n.name}${n.ssh_ready ? '' : '（未就绪）'}`); option.value = n.id; select.append(option);
     const card = el('article', undefined, 'node'), top = el('div', undefined, 'node-top');
-    const status = n.ssh_ready ? 'SSH 就绪' : n.online ? '在线 · SSH 未就绪' : '离线';
+    const paused = n.hub_paused || n.forwarding_paused || n.node_paused;
+    const status = paused ? 'SSH 转发已暂停' : n.ssh_ready ? 'SSH 就绪' : n.online ? '在线 · SSH 未就绪' : '离线';
     top.append(el('h3', n.name), el('span', status, `badge ${n.ssh_ready ? 'good' : n.online ? 'bad' : ''}`)); card.append(top);
     card.append(el('p', `${n.host}:${n.port}`, 'muted'));
+    if (paused) card.append(el('p', `暂停来源：${[n.hub_paused && 'VPS 全局', n.forwarding_paused && 'VPS 节点设置', n.node_paused && '节点本机'].filter(Boolean).join('、')}；需在对应位置恢复。`, 'muted'));
     if (n.status && n.status.hostname) card.append(el('p', `${n.status.hostname} · ${n.status.cpus} 核 · ${n.status.arch}`, 'muted'));
     if (n.error) card.append(el('p', n.error, 'muted'));
     if (!n.online && n.last_seen && !n.last_seen.startsWith('0001')) card.append(el('p', `最后在线 ${date(n.last_seen)}`, 'muted'));
@@ -70,6 +74,10 @@ async function refreshNodes() {
       }
       if (n.status.gpu_error) card.append(el('p', n.status.gpu_error, 'muted'));
     }
+    if (me.admin) card.append(button(n.forwarding_paused ? '恢复节点转发' : '暂停节点转发', async () => {
+      await toggleForwarding(`/api/nodes/${encodeURIComponent(n.id)}/forwarding`, !n.forwarding_paused, n.name);
+      await refreshNodes();
+    }));
     if (me.admin) card.append(button('移除节点', async () => {
       if (prompt(`输入节点名称「${n.name}」确认移除。现有 SSH 隧道将断开。`) !== n.name) return;
       await api(`/api/nodes/${encodeURIComponent(n.id)}`, 'DELETE', {}); notice('节点已移除，连接凭证已撤销'); await refreshNodes();
@@ -84,7 +92,17 @@ async function refreshNode() {
   if (s.hub_url) content.append(el('p', s.hub_url, 'muted'));
   content.append(el('p', `本地 SSH 端口：${s.ssh_port}`, 'muted'));
   if (s.error) content.append(el('p', s.error, 'muted'));
+  if (s.port) content.append(el('p', `固定公网端口：${s.port}`, 'muted'));
+  forwardingControl('local-forwarding', s.forwarding_paused, '/api/forwarding', '这台节点', refreshNode);
   show('pair-section', !s.paired);
+}
+async function toggleForwarding(path, paused, scope) {
+  if (paused && !confirm(`暂停${scope}的 SSH 转发？现有 SSH 会话和文件传输会立即断开，Web 界面继续可用。`)) return;
+  await api(path, 'PUT', { paused });
+  notice(paused ? 'SSH 转发已暂停，Web 和配对配置保留' : '已恢复此处的转发设置；其他位置的暂停需分别恢复');
+}
+function forwardingControl(id, paused, path, scope, refresh) {
+  $(id).replaceChildren(el('span', paused ? 'SSH 转发已暂停' : 'SSH 转发已启用', `badge ${paused ? '' : 'good'}`), button(paused ? '恢复 SSH 转发' : '暂停 SSH 转发', async () => { await toggleForwarding(path, !paused, scope); await refresh(); }));
 }
 async function refreshUsers() {
   const users = await api('/api/users'); $('users').replaceChildren();

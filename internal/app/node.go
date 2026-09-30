@@ -24,18 +24,20 @@ import (
 )
 
 type Node struct {
-	mu     sync.Mutex
-	config Config
-	dir    string
-	online bool
-	error  string
-	port   int
-	ctx    context.Context
-	wake   chan struct{}
+	mu         sync.Mutex
+	config     Config
+	dir        string
+	online     bool
+	error      string
+	port       int
+	ctx        context.Context
+	wake       chan struct{}
+	reportWake chan struct{}
+	streams    map[*yamux.Stream]net.Conn
 }
 
 func NewNode(ctx context.Context, dir string, c Config) *Node {
-	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), port: c.PublicPort}
+	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), reportWake: make(chan struct{}, 1), streams: map[*yamux.Stream]net.Conn{}, port: c.PublicPort}
 }
 
 func InitNode(dir, listen string, sshPort int) (Config, error) {
@@ -119,7 +121,7 @@ func (n *Node) Handler() http.Handler {
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		respond(w, 200, map[string]any{"paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port})
+		respond(w, 200, map[string]any{"paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused})
 	})
 	mux.HandleFunc("POST /api/pair", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -134,6 +136,7 @@ func (n *Node) Handler() http.Handler {
 		}
 		respond(w, 200, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("PUT /api/forwarding", n.setForwarding)
 	mux.Handle("/", web.Handler())
 	// Protect the unauthenticated loopback maintenance UI against DNS rebinding.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -249,6 +252,9 @@ func (n *Node) report(ctx context.Context, c Config, session *yamux.Session) {
 	defer ticker.Stop()
 	for {
 		s := telemetry.Collect(ctx, c.SSHPort)
+		n.mu.Lock()
+		s.ForwardingPaused = n.config.ForwardingPaused
+		n.mu.Unlock()
 		stream, err := session.OpenStream()
 		if err != nil {
 			return
@@ -264,6 +270,7 @@ func (n *Node) report(ctx context.Context, c Config, session *yamux.Session) {
 		case <-session.CloseChan():
 			return
 		case <-ticker.C:
+		case <-n.reportWake:
 		}
 	}
 }
@@ -275,6 +282,19 @@ func (n *Node) serveStream(c Config, stream *yamux.Stream) {
 	if _, err := io.ReadFull(stream, kind[:]); err != nil || kind[0] != transport.SSH {
 		return
 	}
+	n.mu.Lock()
+	if n.config.ForwardingPaused {
+		n.mu.Unlock()
+		stream.Write([]byte{1})
+		return
+	}
+	n.streams[stream] = nil
+	n.mu.Unlock()
+	defer func() {
+		n.mu.Lock()
+		delete(n.streams, stream)
+		n.mu.Unlock()
+	}()
 	// Hub cannot choose arbitrary destinations: only the configured loopback SSH port.
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(c.SSHPort)), 5*time.Second)
 	if err != nil {
@@ -282,6 +302,13 @@ func (n *Node) serveStream(c Config, stream *yamux.Stream) {
 		return
 	}
 	defer conn.Close()
+	n.mu.Lock()
+	if _, active := n.streams[stream]; n.config.ForwardingPaused || !active {
+		n.mu.Unlock()
+		return
+	}
+	n.streams[stream] = conn
+	n.mu.Unlock()
 	if _, err = stream.Write([]byte{0}); err != nil {
 		return
 	}

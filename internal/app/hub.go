@@ -30,11 +30,13 @@ import (
 )
 
 type liveNode struct {
-	listener net.Listener
-	session  *yamux.Session
-	status   telemetry.Status
-	seen     time.Time
-	error    string
+	paused      bool
+	connections map[net.Conn]struct{}
+	listener    net.Listener
+	session     *yamux.Session
+	status      telemetry.Status
+	seen        time.Time
+	error       string
 }
 
 type attempt struct {
@@ -51,6 +53,7 @@ type Hub struct {
 	attempts    map[string]attempt
 	ctx         context.Context
 	closed      bool
+	paused      bool
 	dir         string
 	stopMonitor chan struct{}
 	monitorDone chan struct{}
@@ -91,6 +94,7 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 	}
 	var nodes []store.Node
 	if err = s.View(func(st store.State) error {
+		h.paused = st.ForwardingPaused
 		for _, n := range st.Nodes {
 			nodes = append(nodes, n)
 		}
@@ -101,7 +105,7 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 	}
 	for _, n := range nodes {
 		ln, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(n.Port)))
-		live := &liveNode{listener: ln}
+		live := &liveNode{listener: ln, paused: n.ForwardingPaused, connections: map[net.Conn]struct{}{}}
 		if err != nil {
 			live.error = "公网端口被占用: " + err.Error()
 			slog.Error("node listener", "node", n.ID, "error", err)
@@ -207,6 +211,9 @@ func (h *Hub) Handler() http.Handler {
 	mux.Handle("POST /api/logout", h.auth(false, h.logout))
 	mux.Handle("PUT /api/password", h.auth(false, h.password))
 	mux.Handle("GET /api/nodes", h.auth(false, h.nodes))
+	mux.Handle("GET /api/forwarding", h.auth(false, h.forwardingStatus))
+	mux.Handle("PUT /api/forwarding", h.auth(true, h.setForwarding))
+	mux.Handle("PUT /api/nodes/{id}/forwarding", h.auth(true, h.setForwarding))
 	mux.Handle("POST /api/invites", h.auth(true, h.invite))
 	mux.Handle("DELETE /api/nodes/{id}", h.auth(true, h.deleteNode))
 	mux.Handle("GET /api/users", h.auth(true, h.users))
@@ -303,7 +310,10 @@ func (h *Hub) nodes(w http.ResponseWriter, r *http.Request, u store.User) {
 	for _, n := range saved {
 		l := h.live[n.ID]
 		online := l != nil && l.session != nil && !l.session.IsClosed() && !l.seen.IsZero() && time.Since(l.seen) < 45*time.Second
-		row := map[string]any{"id": n.ID, "name": n.Name, "port": n.Port, "host": public.Hostname(), "online": online, "ssh_ready": online && l.status.SSHReady && l.listener != nil}
+		row := map[string]any{"id": n.ID, "name": n.Name, "port": n.Port, "host": public.Hostname(), "online": online, "ssh_ready": online && l.status.SSHReady && l.listener != nil && !h.paused && !l.paused && !l.status.ForwardingPaused}
+		row["hub_paused"] = h.paused
+		row["forwarding_paused"] = n.ForwardingPaused
+		row["node_paused"] = l != nil && l.status.ForwardingPaused
 		row["last_seen"] = n.LastSeen
 		history := make([]store.Daily, 0, 30)
 		for days := 29; days >= 0; days-- {
@@ -414,7 +424,7 @@ func (h *Hub) enroll(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err == nil {
-		h.live[id] = &liveNode{listener: ln}
+		h.live[id] = &liveNode{listener: ln, connections: map[net.Conn]struct{}{}}
 	}
 	h.mu.Unlock()
 	if err != nil {
@@ -561,13 +571,19 @@ func (h *Hub) forwardSSH(id string, conn net.Conn) {
 	h.mu.Lock()
 	l := h.live[id]
 	var session *yamux.Session
-	if l != nil && l.session != nil && time.Since(l.seen) < 45*time.Second {
+	if !h.closed && !h.paused && l != nil && !l.paused && !l.status.ForwardingPaused && l.session != nil && time.Since(l.seen) < 45*time.Second {
 		session = l.session
+		l.connections[conn] = struct{}{}
 	}
 	h.mu.Unlock()
 	if session == nil {
 		return
 	}
+	defer func() {
+		h.mu.Lock()
+		delete(l.connections, conn)
+		h.mu.Unlock()
+	}()
 	stream, err := session.OpenStream()
 	if err != nil {
 		return

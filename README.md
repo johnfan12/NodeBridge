@@ -87,15 +87,71 @@ sudo bash scripts/install.sh hub --public-url https://你的VPS公网IP:9443
 sudo bash scripts/install.sh node
 ```
 
-默认下载仓库的最新正式 Release。需要指定版本或镜像时可以覆盖下载地址，例如固定安装 `v0.1.0`：
+默认下载仓库的最新正式 Release。需要指定版本或镜像时可以覆盖下载地址，例如固定安装 `v0.1.2`：
 
 ```bash
-curl -fsSL https://github.com/johnfan12/NodeBridge/releases/download/v0.1.0/install.sh \
-  | sudo env NODEBRIDGE_RELEASE_BASE_URL=https://github.com/johnfan12/NodeBridge/releases/download/v0.1.0 \
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/download/v0.1.2/install.sh \
+  | sudo env NODEBRIDGE_RELEASE_BASE_URL=https://github.com/johnfan12/NodeBridge/releases/download/v0.1.2 \
     bash -s -- hub --public-url https://你的VPS公网IP:9443
 ```
 
 项目通过 GitHub Actions 发布：推送 `v*` 标签后运行检查、构建安装包，并发布独立安装脚本和校验和。
+
+## 暂停 / 恢复 SSH 转发（保留 Web）
+
+| 操作位置 | 方法 | 影响范围 |
+| --- | --- | --- |
+| VPS 控制台，管理员登录 | “SSH 转发服务” → “暂停 SSH 转发” / “恢复 SSH 转发” | 全部节点 |
+| VPS 控制台的节点卡片 | “暂停节点转发” / “恢复节点转发” | 所选节点 |
+| 本地节点 `http://127.0.0.1:9899` | “连接状态” → “暂停 SSH 转发” / “恢复 SSH 转发” | 本机节点 |
+
+暂停会**立即断开范围内的现有 SSH 会话和文件传输**，阻止新 SSH 转发；Web 页面继续可用，节点在线状态、GPU 指标和配对功能继续运行。不会停止系统的 `sshd` 或删除账号、配置、数据。公网 SSH 端口仍被保留，恢复后使用原来的端口，无需重新配对。暂停状态会保存，重启或更新后仍然有效。
+
+各位置的暂停独立生效：如果 VPS 全局和节点本机都暂停，需要分别恢复；节点卡片会显示暂停来源。普通控制台用户只能查看，VPS 的暂停操作需要管理员权限。
+
+无桌面的本地服务器也可以执行：
+
+```bash
+# 暂停本机 SSH 转发；维护页使用自定义端口时替换 9899
+curl -fsS -X PUT http://127.0.0.1:9899/api/forwarding \
+  -H 'Content-Type: application/json' -H 'X-NodeBridge-Request: 1' \
+  -d '{"paused":true}'
+
+# 恢复本机 SSH 转发
+curl -fsS -X PUT http://127.0.0.1:9899/api/forwarding \
+  -H 'Content-Type: application/json' -H 'X-NodeBridge-Request: 1' \
+  -d '{"paused":false}'
+```
+
+本地维护页和 VPS 控制台共享同一套 Azure 样式。已安装的 hub 和 node 都需要重新执行各自的安装命令才能获得这些按钮与新功能。更新会重启对应服务并断开其 SSH 会话，建议在空闲时进行。
+
+## 卸载整个服务（Web + 后端）
+
+以下命令适用于一键脚本安装的 Linux/systemd 服务，卸载后对应 Web 页面和 SSH 转发都停止。
+
+**本地节点：**
+
+```bash
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/uninstall.sh | sudo bash -s -- node --purge
+```
+
+**远程 VPS：**
+
+```bash
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/uninstall.sh | sudo bash -s -- hub --purge
+```
+
+**同一台机器同时卸载两种模式：**
+
+```bash
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/uninstall.sh | sudo bash -s -- all --purge
+```
+
+`--purge` 会永久删除所选模式的配置、配对凭证和数据库（hub 包括账号、端口记录、证书与审计）；需要保留数据以便重新安装时，去掉 `--purge`。脚本会停止并禁用服务、删除 systemd 单元；另一模式仍安装时保留共享二进制。两种模式都卸载且数据均已清除时，也删除共享程序与 `nodebridge` 系统账号。
+
+卸载节点不会自动删除 VPS 的节点记录；在 VPS 控制台“移除节点”可撤销旧凭证并回收端口。重新安装已清理数据的节点需要新的配对链接。卸载 hub 会断开全部转发，重新安装已清理数据的 hub 需要所有节点重新配对。系统 SSH 服务、Linux 用户、用户文件和 GPU 驱动保留。操作应通过 VPS 自身 SSH 或节点的直接维护入口执行。
+
+离线使用 Release 安装包中的 `sudo bash uninstall.sh node --purge`（VPS 改为 `hub`）；源码仓库中使用 `sudo bash scripts/uninstall.sh node --purge`。手动运行二进制的部署需先停止对应进程，再删除自行指定的数据目录和二进制。
 
 ## 需要填写的配置
 
@@ -120,6 +176,7 @@ VPS 必须放行控制台端口（默认 TCP `9443`）和 SSH 公网端口池（
 ## 已有功能
 
 - 自动配对、多节点展示、固定公网 SSH 端口自动分配与回收。
+- VPS 全局、单节点及节点本机暂停/恢复 SSH 转发，保留 Web、配对、状态上报；暂停状态持久化。
 - 节点连接状态、SSH 服务就绪状态、CPU 核数、GPU 利用率/显存/温度/功耗。
 - 每 10 秒上报状态，每 30 秒采样，保存最近 30 天在线记录。
 - 管理员预创建、登录/退出、可选自助注册、创建用户、角色修改、密码修改/重置、删除用户。
@@ -131,7 +188,7 @@ VPS 必须放行控制台端口（默认 TCP `9443`）和 SSH 公网端口池（
 
 ```bash
 make check
-make release VERSION=v0.1.0
+make release VERSION=v0.1.2
 ```
 
 检查包括 Go vet、竞态检测下的集成测试、JS 语法和脚本语法检查。集成测试启动真实 HTTPS hub、节点反向连接与本地 TCP 服务，验证大数据转发、半关闭、重连、配对原子性、端口冲突、凭证撤销、权限与证书校验。

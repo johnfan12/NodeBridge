@@ -100,12 +100,24 @@ WebUI 随二进制一起更新。已安装用户重新执行 README 中对应模
 
 联网安装使用 [最新 Release 安装脚本](https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh)，两种模式的命令见 README。默认下载最新版，可用 `NODEBRIDGE_RELEASE_BASE_URL` 固定版本或指定镜像。
 
-卸载服务时：
+## 暂停转发与完整停服
+
+需要保留 Web 时不要执行 `systemctl stop`。管理员在 VPS 控制台使用全局或节点暂停按钮；节点本机在 `http://127.0.0.1:9899` 的连接状态中暂停。无桌面节点的 curl 命令见 [README](../README.md#暂停--恢复-ssh-转发保留-web)。
+
+暂停立即断开现有 SSH/传输，阻止新转发；管理连接、GPU 上报、配对、页面和原端口继续保留。VPS 全局、VPS 节点设置、节点本机三个开关独立，所有开关均恢复后才允许转发。hub 暂停存入 `hub.db`，node 暂停存入 `config.json` 的 `forwarding_paused`，重启/更新不会自动解除。在线历史继续采样，暂停期间 SSH 就绪统计为不可用。
+
+需要连 Web 一起关闭时执行 `sudo systemctl stop nodebridge-hub` 或 `sudo systemctl stop nodebridge-node`；`start` 可恢复。要关闭开机启动，使用 `sudo systemctl disable --now nodebridge-node`（VPS 改成 `hub`）。
+
+## 完整卸载
+
+[README 的卸载命令](../README.md#卸载整个服务web--后端)下载 Release 的 `uninstall.sh`。脚本支持 `hub`、`node`、`all`；默认停止并禁用服务、移除 systemd 单元，保留数据。指定 `--purge` 才删除所选模式的数据目录，无法撤销。另一模式仍安装时保留共享二进制与系统账号；都卸载且数据都清除时移除共享程序和账号。
+
+离线安装包：
 
 ```bash
-sudo systemctl disable --now nodebridge-node
-sudo rm /etc/systemd/system/nodebridge-node.service
-sudo systemctl daemon-reload
+sudo bash uninstall.sh node --purge
+# VPS：sudo bash uninstall.sh hub --purge
+# 本机两种模式：sudo bash uninstall.sh all --purge
 ```
 
-hub 对应替换服务名。默认保留数据目录用于恢复；确认不再需要后再手工删除。若同一机器仍运行另一种模式，应保留共享二进制。
+卸载 node 后在 hub 控制台移除对应节点可撤销凭证、回收端口。卸载 hub 会中断所有 SSH 转发；清理数据后重装需重新创建账号并重新配对所有节点。卸载不会停止系统 sshd、修改防火墙或删除用户文件。手动部署的自定义进程、数据路径需自行清理。

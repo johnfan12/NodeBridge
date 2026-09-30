@@ -11,11 +11,11 @@ internal/store/      hub 嵌入式 bbolt 存储
 internal/transport/  yamux 配置和 TCP 数据转发
 internal/telemetry/  本机 SSH 探测与 nvidia-smi
 internal/web/        内嵌 HTML/CSS/JavaScript
-scripts/             安装和跨架构打包
+scripts/             安装、卸载和跨架构打包
 docs/                架构、迁移和运维
 ```
 
-前端为原生 HTML/CSS/JavaScript，不需要独立构建工具或 CDN。节点维护页用于首次配对与诊断；正式账号、节点管理和 SSH 命令入口在 hub。
+前端为原生 HTML/CSS/JavaScript，不需要独立构建工具或 CDN。节点维护页用于首次配对、诊断与本机 SSH 转发开关；正式账号、节点管理和 SSH 命令入口在 hub。
 
 ## 配对流程
 
@@ -42,6 +42,14 @@ docs/                架构、迁移和运维
 SSH 流量经 VPS 中继，SSH 自身的协议加密和 Linux 账号鉴权保持有效。hub 登录权限控制管理界面；公网 SSH 端口最终由节点的 SSH 服务验证密钥/密码。
 
 相关实现依据：[coder/websocket NetConn](https://pkg.go.dev/github.com/coder/websocket#NetConn)、[yamux 协议与库](https://github.com/hashicorp/yamux)。
+
+## 暂停 SSH 转发
+
+暂停只作用于 SSH 数据流，保持 WebSocket/yamux 管理连接和状态上报。hub 在接入 SSH 连接时检查全局与单节点开关，并追踪活动 TCP 连接；暂停时关闭范围内的连接。node 在连接本机 SSH 前检查本机开关，并追踪 SSH 流和本机连接；暂停时关闭这些流与连接。两侧的检查和登记与暂停操作使用同一互斥锁，避免并发新连接绕过暂停。
+
+`PUT /api/forwarding` 的 JSON 为 `{"paused":true}` 或 `{"paused":false}`，hub 要求管理员会话，node 使用原有回环维护页的 Host/Origin/请求头保护。hub 的 `PUT /api/nodes/{id}/forwarding` 控制单节点。全局、单节点、本机三个开关独立，恢复一处不会解除另一处的暂停。node 在状态中上报 `forwarding_paused`，hub 的 SSH 就绪状态同时检查三个开关；GPU 与在线状态仍然展示。
+
+hub 两类开关通过数据库事务保存，node 通过配置文件原子替换保存。旧版本未提供的字段默认 false，不改变原有配对和端口；公网监听器继续占用固定端口，暂停时接受到的连接被关闭而不会转发。
 
 ## 状态与持久化
 

@@ -208,3 +208,8 @@ footer { padding: 18px; color: var(--muted); text-align: center; font-size: 12px
   .check { align-self: flex-start; }
   #local-status p { overflow-wrap: anywhere; }
 }
+
+/* The loopback maintenance page shares the hub's Azure controls. */
+#node-page { max-width: 880px; margin-inline: auto; }
+#local-status p { overflow-wrap: anywhere; }
+.forwarding-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 12px 0; }

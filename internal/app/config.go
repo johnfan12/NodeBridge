@@ -25,19 +25,20 @@ import (
 )
 
 type Config struct {
-	Mode        string `json:"mode"`
-	Listen      string `json:"listen"`
-	PublicURL   string `json:"public_url,omitempty"`
-	PortStart   int    `json:"port_start,omitempty"`
-	PortEnd     int    `json:"port_end,omitempty"`
-	HubURL      string `json:"hub_url,omitempty"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	NodeID      string `json:"node_id,omitempty"`
-	Credential  string `json:"credential,omitempty"`
-	SSHPort     int    `json:"ssh_port,omitempty"`
-	PublicPort  int    `json:"public_port,omitempty"`
-	CertFile    string `json:"cert_file,omitempty"`
-	KeyFile     string `json:"key_file,omitempty"`
+	ForwardingPaused bool   `json:"forwarding_paused,omitempty"`
+	Mode             string `json:"mode"`
+	Listen           string `json:"listen"`
+	PublicURL        string `json:"public_url,omitempty"`
+	PortStart        int    `json:"port_start,omitempty"`
+	PortEnd          int    `json:"port_end,omitempty"`
+	HubURL           string `json:"hub_url,omitempty"`
+	Fingerprint      string `json:"fingerprint,omitempty"`
+	NodeID           string `json:"node_id,omitempty"`
+	Credential       string `json:"credential,omitempty"`
+	SSHPort          int    `json:"ssh_port,omitempty"`
+	PublicPort       int    `json:"public_port,omitempty"`
+	CertFile         string `json:"cert_file,omitempty"`
+	KeyFile          string `json:"key_file,omitempty"`
 }
 
 type Pairing struct {

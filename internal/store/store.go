@@ -28,12 +28,13 @@ type Invite struct {
 }
 
 type Node struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	CredentialHash string    `json:"credential_hash,omitempty"`
-	Port           int       `json:"port"`
-	Created        time.Time `json:"created"`
-	LastSeen       time.Time `json:"last_seen"`
+	ForwardingPaused bool      `json:"forwarding_paused,omitempty"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	CredentialHash   string    `json:"credential_hash,omitempty"`
+	Port             int       `json:"port"`
+	Created          time.Time `json:"created"`
+	LastSeen         time.Time `json:"last_seen"`
 }
 
 type Daily struct {
@@ -52,14 +53,15 @@ type Audit struct {
 }
 
 type State struct {
-	Version       int                `json:"version"`
-	Users         map[string]User    `json:"users"`
-	Sessions      map[string]Session `json:"sessions"`
-	Invites       map[string]Invite  `json:"invites"`
-	Nodes         map[string]Node    `json:"nodes"`
-	Audit         []Audit            `json:"audit"`
-	AllowRegister bool               `json:"allow_register"`
-	Daily         map[string]Daily   `json:"daily"`
+	ForwardingPaused bool               `json:"forwarding_paused,omitempty"`
+	Version          int                `json:"version"`
+	Users            map[string]User    `json:"users"`
+	Sessions         map[string]Session `json:"sessions"`
+	Invites          map[string]Invite  `json:"invites"`
+	Nodes            map[string]Node    `json:"nodes"`
+	Audit            []Audit            `json:"audit"`
+	AllowRegister    bool               `json:"allow_register"`
+	Daily            map[string]Daily   `json:"daily"`
 }
 
 func (s *State) Record(actor, action, target string) {

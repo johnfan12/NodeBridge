@@ -10,6 +10,6 @@ check:
 	$(GO) vet ./...
 	$(GO) test -race ./...
 	@if command -v node >/dev/null; then node --check internal/web/app.js; fi
-	bash -n scripts/install.sh scripts/release.sh
+	bash -n scripts/install.sh scripts/uninstall.sh scripts/release.sh
 release:
 	GO=$(GO) VERSION=$(VERSION) bash scripts/release.sh

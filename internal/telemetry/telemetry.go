@@ -23,14 +23,15 @@ type GPU struct {
 }
 
 type Status struct {
-	Hostname string    `json:"hostname"`
-	OS       string    `json:"os"`
-	Arch     string    `json:"arch"`
-	CPUs     int       `json:"cpus"`
-	SSHReady bool      `json:"ssh_ready"`
-	GPUs     []GPU     `json:"gpus"`
-	GPUError string    `json:"gpu_error,omitempty"`
-	At       time.Time `json:"at"`
+	ForwardingPaused bool      `json:"forwarding_paused,omitempty"`
+	Hostname         string    `json:"hostname"`
+	OS               string    `json:"os"`
+	Arch             string    `json:"arch"`
+	CPUs             int       `json:"cpus"`
+	SSHReady         bool      `json:"ssh_ready"`
+	GPUs             []GPU     `json:"gpus"`
+	GPUError         string    `json:"gpu_error,omitempty"`
+	At               time.Time `json:"at"`
 }
 
 func number(s string) *float64 {
