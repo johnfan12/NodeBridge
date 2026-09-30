@@ -11,7 +11,7 @@
 | 旧实现 | NodeBridge |
 | --- | --- |
 | 两个 Python 仓库 | 一个 Go 仓库、一个二进制，hub/node 模式 |
-| Vite/Vue 独立构建 | 内嵌静态 WebUI，无前端安装步骤 |
+| Vite/Vue 独立构建 | 内嵌 Azure 风格静态 WebUI，无前端安装步骤 |
 | frps + 节点 API frpc + SSH frpc | 内置 TLS/WebSocket 反向连接与 yamux 数据流 |
 | 配置节点 JSON、API 端口、proxy 名称 | 邀请配对后自动建立节点记录 |
 | JWT、内部令牌、FRP 令牌手工同步 | Cookie 会话与每节点独立随机凭证 |

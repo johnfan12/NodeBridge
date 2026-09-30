@@ -5,6 +5,7 @@
 - **hub**：部署在有公网 IP 的 VPS，提供 HTTPS 控制台、账号管理、配对和自动端口分配。
 - **node**：部署在内网服务器，主动连接 hub，转发本地 SSH，并上报节点/GPU 状态。
 - WebUI 编译进二进制；生产环境不需要 Python、Node.js、npm、FRP 或单独部署数据库。
+- WebUI 沿用原 Clustermanager 的 Azure 风格：中性灰背景、白色面板、Azure 蓝按钮、深色文字和清晰的输入框边界，支持桌面与手机布局。
 - 当前重构基线是两个旧仓库的 `simple-tunnel-platform` 分支。Docker 实例、资源配额和卡时计费不属于此分支，功能清单见 [迁移说明](docs/MIGRATION.md)。
 
 ```mermaid

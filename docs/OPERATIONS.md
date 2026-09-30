@@ -96,6 +96,8 @@ hub 重启时若原端口被其他服务占用，会保留端口记录并显示�
 
 新版安装包执行同样的安装命令，会原子替换二进制并重启对应模式的服务，已有配置和数据库保留。首次管理员密码文件只存在于尚未修改初始密码的部署。
 
+WebUI 随二进制一起更新。已安装用户重新执行 README 中对应模式的一键安装命令即可获取新版界面；升级后刷新浏览器。
+
 联网安装使用 [最新 Release 安装脚本](https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh)，两种模式的命令见 README。默认下载最新版，可用 `NODEBRIDGE_RELEASE_BASE_URL` 固定版本或指定镜像。
 
 卸载服务时：
