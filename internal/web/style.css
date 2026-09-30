@@ -57,11 +57,10 @@ header {
 #toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 13px; }
 #toolbar > span { font-weight: 600; }
 #toolbar button { min-height: 32px; padding: 4px 12px; }
-main { max-width: 1280px; min-height: calc(100vh - 112px); margin: 0 auto; padding: 20px 24px; }
+main { max-width: 1280px; min-height: calc(100vh - 52px); margin: 0 auto; padding: 20px 24px; }
 h1 { margin: 6px 0 10px; font-size: 24px; font-weight: 600; line-height: 1.35; }
 h2 { margin: 0 0 16px; font-size: 16px; font-weight: 600; }
 .intro { margin: 4px 0 20px; }
-.eyebrow { margin: 0; color: var(--accent); font-size: 13px; font-weight: 600; }
 .muted { color: var(--muted); font-size: 13px; }
 
 .card {
@@ -190,7 +189,6 @@ td button { min-height: 30px; margin: 2px 4px; padding: 4px 10px; font-size: 12p
 #notice.error { border-color: var(--bad-border); border-left-color: var(--bad); background: var(--bad-bg); color: var(--bad); }
 dialog.card { max-width: 560px; max-height: 85vh; margin: auto; }
 dialog::backdrop { background: rgb(0 0 0 / 40%); }
-footer { padding: 18px; color: var(--muted); text-align: center; font-size: 12px; }
 [hidden] { display: none !important; }
 
 @media (max-width: 720px) {
@@ -213,3 +211,9 @@ footer { padding: 18px; color: var(--muted); text-align: center; font-size: 12px
 #node-page { max-width: 880px; margin-inline: auto; }
 #local-status p { overflow-wrap: anywhere; }
 .forwarding-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+
+.toolbar-link { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 12px; border: 1px solid var(--control-border); border-radius: 2px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; text-decoration: none; }
+.toolbar-link:hover { background: var(--accent-light); border-color: var(--accent); color: var(--accent-active); }
+.admin-node-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.admin-node-row:last-child { border-bottom: 0; }
+.admin-node-row > div { min-width: 0; overflow-wrap: anywhere; }

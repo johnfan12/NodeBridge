@@ -11,25 +11,19 @@
     <div id="notice" role="status" aria-live="polite" hidden></div>
     <section id="loading" class="card">正在连接…</section>
     <section id="auth" class="card compact" hidden>
-      <p class="eyebrow">控制台</p><h1>连接你的服务器</h1><p class="muted">登录后查看节点，生成 SSH 连接命令。</p>
+      <h1>登录</h1>
       <form id="login-form"><label>用户名<input name="username" autocomplete="username" required maxlength="64"></label><label>密码<input name="password" type="password" autocomplete="current-password" required maxlength="72"></label><button type="submit">登录</button><button id="register-button" class="secondary" type="button" hidden>创建账号</button></form>
     </section>
     <section id="node-page" hidden>
-      <div class="intro"><p class="eyebrow">节点维护</p><h1>把这台服务器接入控制台</h1><p class="muted">从 VPS 控制台复制配对链接，粘贴到这里。端口和连接配置会自动完成。</p></div>
-      <section class="card"><div class="section-head"><h2>连接状态</h2><span class="muted">本机维护</span></div><div id="local-status"></div><div id="local-forwarding" class="forwarding-controls"></div><p class="muted">暂停仅关闭 SSH 转发，维护页面、配对和状态上报继续运行。恢复时沿用原端口。</p></section>
-      <section id="pair-section" class="card"><form id="pair-form"><label>配对链接<textarea name="link" placeholder="nodebridge://pair/…" rows="4" required maxlength="8192" spellcheck="false"></textarea></label><button>配对并连接</button></form></section>
+      <div class="intro"><h1>节点维护</h1></div>
+      <section class="card"><h2>连接状态</h2><div id="local-status"></div><div id="local-forwarding" class="forwarding-controls"></div></section>
+      <section id="pair-section" class="card"><h2>配对</h2><p class="muted">粘贴 VPS 生成的配对链接。</p><form id="pair-form"><label>配对链接<textarea name="link" placeholder="nodebridge://pair/…" rows="4" required maxlength="8192" spellcheck="false"></textarea></label><button>配对并连接</button></form></section>
     </section>
     <section id="dashboard" hidden>
-      <div class="intro"><p class="eyebrow">工作空间</p><h1>服务器一览</h1><p class="muted">节点主动连接控制台。SSH 使用服务器上已有的 Linux 账号和密钥。</p></div>
+      <div class="intro"><h1>服务器一览</h1></div>
       <section class="card"><div class="section-head"><h2>节点</h2><span id="node-summary" class="muted"></span></div><div id="nodes" class="node-grid"></div></section>
-      <section class="card"><h2>生成 SSH 命令</h2><form id="ssh-form" class="row"><label>服务器<select name="node" required></select></label><label>Linux 用户名<input name="username" placeholder="例如 fan" required maxlength="64" pattern="[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}"></label><button>生成命令</button></form><div id="ssh-result" hidden><div class="copy-row"><code id="ssh-command"></code><button id="copy-ssh" class="secondary">复制</button></div><p class="muted">使用该节点的固定公网端口。真实登录权限由节点 SSH 服务验证。</p></div></section>
-      <section id="admin-panel" hidden>
-        <section class="card"><h2>SSH 转发服务</h2><div id="hub-forwarding" class="forwarding-controls"></div><p class="muted">暂停全部转发会立即断开所有节点的现有 SSH 会话。控制台、账号、节点状态和配对继续可用。</p></section>
-        <section class="card"><h2>接入新服务器</h2><p class="muted">链接仅可使用一次，15 分钟内有效。每台服务器自动分配一个固定公网 SSH 端口。</p><form id="invite-form" class="row"><label>节点名称<input name="name" placeholder="例如 实验室服务器" required maxlength="100"></label><button>生成配对链接</button></form><div id="invite-result" hidden><div class="copy-row"><textarea id="pair-link" rows="3" readonly spellcheck="false"></textarea><button id="copy-link" class="secondary">复制链接</button></div><p id="invite-expiry" class="muted"></p><p class="muted">在节点运行 nodebridge node，然后打开本地 http://127.0.0.1:9899 粘贴链接。无桌面的服务器可使用 nodebridge node --pair-file 文件路径。</p></div></section>
-        <section class="card"><div class="section-head"><h2>账号管理</h2><label class="check"><input id="allow-register" type="checkbox">允许自助注册</label></div><form id="user-form" class="row"><label>用户名<input name="username" required maxlength="64"></label><label>初始密码<input name="password" type="password" required minlength="10" maxlength="72" autocomplete="new-password"></label><label class="check"><input name="admin" type="checkbox">管理员</label><button>创建账号</button></form><div class="table-wrap"><table><thead><tr><th>用户名</th><th>角色</th><th>操作</th></tr></thead><tbody id="users"></tbody></table></div></section>
-        <section class="card"><div class="section-head"><h2>最近操作</h2><button id="audit-refresh" class="secondary">刷新</button></div><div id="audit" class="audit"></div></section>
-      </section>
+      <section class="card"><h2>生成 SSH 命令</h2><form id="ssh-form" class="row"><label>服务器<select name="node" required></select></label><label>Linux 用户名<input name="username" placeholder="例如 fan" required maxlength="64" pattern="[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}"></label><button>生成命令</button></form><div id="ssh-result" hidden><div class="copy-row"><code id="ssh-command"></code><button id="copy-ssh" class="secondary">复制</button></div></div></section>
     </section>
-  </main><footer>NodeBridge · 统一控制台，自动配对</footer>
+  </main>
 </body>
 </html>

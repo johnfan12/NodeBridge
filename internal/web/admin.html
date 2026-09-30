@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NodeBridge · 管理控制台</title><link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body data-page="admin">
+  <header><a class="brand" href="/">NodeBridge<span>管理控制台</span></a><div id="toolbar"></div></header>
+  <main>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <section id="loading" class="card">正在连接…</section>
+    <section id="auth" class="card compact" hidden>
+    <h1>登录</h1>
+    <form id="login-form"><label>用户名<input name="username" autocomplete="username" required maxlength="64"></label><label>密码<input name="password" type="password" autocomplete="current-password" required maxlength="72"></label><button type="submit">登录</button><button id="register-button" class="secondary" type="button" hidden>创建账号</button></form>
+    </section>
+    <section id="admin-panel" hidden>
+      <div class="intro"><h1>管理控制台</h1></div>
+      <section class="card"><h2>SSH 转发服务</h2><div id="hub-forwarding" class="forwarding-controls"></div></section>
+      <section class="card"><h2>节点管理</h2><div id="admin-nodes"></div></section>
+      <section class="card"><h2>接入新服务器</h2><form id="invite-form" class="row"><label>节点名称<input name="name" placeholder="例如 实验室服务器" required maxlength="100"></label><button>生成配对链接</button></form><div id="invite-result" hidden><div class="copy-row"><textarea id="pair-link" rows="3" readonly spellcheck="false"></textarea><button id="copy-link" class="secondary">复制链接</button></div><p id="invite-expiry" class="muted"></p><p class="muted">在节点运行 <code>nodebridge pair</code>，粘贴链接。</p></div></section>
+      <section class="card"><div class="section-head"><h2>账号管理</h2><label class="check"><input id="allow-register" type="checkbox">允许自助注册</label></div><form id="user-form" class="row"><label>用户名<input name="username" required maxlength="64"></label><label>初始密码<input name="password" type="password" required minlength="10" maxlength="72" autocomplete="new-password"></label><label class="check"><input name="admin" type="checkbox">管理员</label><button>创建账号</button></form><div class="table-wrap"><table><thead><tr><th>用户名</th><th>角色</th><th>操作</th></tr></thead><tbody id="users"></tbody></table></div></section>
+      <section class="card"><div class="section-head"><h2>最近操作</h2><button id="audit-refresh" class="secondary">刷新</button></div><div id="audit" class="audit"></div></section>
+    </section>
+  </main>
+</body>
+</html>

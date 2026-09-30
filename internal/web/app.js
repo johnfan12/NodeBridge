@@ -1,7 +1,9 @@
 'use strict';
 const $ = id => document.getElementById(id);
+const adminPage = document.body.dataset.page === 'admin';
+function on(id, event, action) { $(id)?.addEventListener(event, action); }
 let config = {}, me = null, nodes = [], refreshBusy = false;
-function show(id, visible = true) { $(id).hidden = !visible; }
+function show(id, visible = true) { const e = $(id); if (e) e.hidden = !visible; }
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : ''; show('notice'); }
 function button(text, action, cls = 'secondary') { const b = el('button', text, cls); b.type = 'button'; b.addEventListener('click', () => Promise.resolve(action()).catch(e => notice(e.message, true))); return b; }
@@ -11,37 +13,41 @@ async function api(path, method = 'GET', body) {
   if (!r.ok) { const e = Error(data.error || '请求失败'); e.status = r.status; throw e; } return data;
 }
 function form(id, fn) {
+  if (!$(id)) return;
   $(id).addEventListener('submit', async e => {
     e.preventDefault(); const controls = [...e.target.querySelectorAll('button')]; controls.forEach(b => b.disabled = true);
     try { await fn(new FormData(e.target), e.target); } catch (err) { notice(err.message, true); } finally { controls.forEach(b => b.disabled = false); }
   });
 }
 async function copy(value) {
-  try { await navigator.clipboard.writeText(value); notice('已复制'); } catch { notice('浏览器未允许自动复制，请选中文字手动复制', true); }
+  try { await navigator.clipboard.writeText(value); notice('已复制'); } catch { notice('复制失败，请手动复制', true); }
 }
 function date(value) { return value ? new Date(value).toLocaleString() : '—'; }
 function metric(value, suffix = '') { return value == null ? '—' : `${Number(value).toFixed(0)}${suffix}`; }
 
 async function boot() {
   config = await api('/api/config'); show('loading', false);
-  if (config.mode === 'node') { show('node-page'); await refreshNode(); return; }
-  $('allow-register').checked = config.allow_register;
+  if (config.mode === 'node') { if (adminPage) { location.replace('/'); return; } show('node-page'); await refreshNode(); return; }
+  if ($('allow-register')) $('allow-register').checked = config.allow_register;
   show('register-button', config.allow_register);
   try { me = await api('/api/me'); await dashboard(); } catch (e) { if (e.status === 401) { show('auth'); } else { throw e; } }
 }
 async function dashboard() {
-  show('auth', false); show('dashboard'); show('admin-panel', me.admin);
-  $('toolbar').replaceChildren(el('span', `${me.username}${me.admin ? ' · 管理员' : ''}`), button('修改密码', changePassword), button('退出', logout));
-  await refreshNodes(); if (me.admin) { await Promise.all([refreshUsers(), refreshAudit()]); }
+  if (adminPage && !me.admin) { location.replace('/'); return; }
+  show('auth', false); show('dashboard', !adminPage); show('admin-panel', adminPage);
+  const toolbar = $('toolbar'); toolbar.replaceChildren(el('span', `${me.username}${me.admin ? ' · 管理员' : ''}`));
+  if (me.admin) {
+    const link = el('a', adminPage ? '服务器一览' : '管理页面', 'toolbar-link'); link.href = adminPage ? '/' : '/admin'; toolbar.append(link);
+  }
+  toolbar.append(button('修改密码', changePassword), button('退出', logout));
+  if (adminPage) await Promise.all([refreshAdminNodes(), refreshUsers(), refreshAudit()]); else await refreshNodes();
 }
 async function logout() { await api('/api/logout', 'POST', {}); me = null; location.reload(); }
 async function refreshNodes() {
-  const [savedNodes, forwarding] = await Promise.all([api('/api/nodes'), api('/api/forwarding')]);
-  nodes = savedNodes;
-  if (me.admin) forwardingControl('hub-forwarding', forwarding.paused, '/api/forwarding', '全部节点', refreshNodes);
+  nodes = await api('/api/nodes');
   $('node-summary').textContent = `${nodes.filter(n => n.online).length} / ${nodes.length} 在线`;
   const content = $('nodes'); content.replaceChildren();
-  if (!nodes.length) content.append(el('p', me.admin ? '还没有服务器。生成配对链接，接入第一台节点。' : '管理员尚未接入服务器。', 'muted'));
+  if (!nodes.length) content.append(el('p', me.admin ? '暂无服务器，可在管理页面接入。' : '暂无服务器。', 'muted'));
   const selected = $('ssh-form').elements.node.value;
   const select = $('ssh-form').elements.node; select.replaceChildren();
   for (const n of nodes) {
@@ -51,7 +57,7 @@ async function refreshNodes() {
     const status = paused ? 'SSH 转发已暂停' : n.ssh_ready ? 'SSH 就绪' : n.online ? '在线 · SSH 未就绪' : '离线';
     top.append(el('h3', n.name), el('span', status, `badge ${n.ssh_ready ? 'good' : n.online ? 'bad' : ''}`)); card.append(top);
     card.append(el('p', `${n.host}:${n.port}`, 'muted'));
-    if (paused) card.append(el('p', `暂停来源：${[n.hub_paused && 'VPS 全局', n.forwarding_paused && 'VPS 节点设置', n.node_paused && '节点本机'].filter(Boolean).join('、')}；需在对应位置恢复。`, 'muted'));
+    if (paused) card.append(el('p', `暂停来源：${[n.hub_paused && 'VPS 全局', n.forwarding_paused && 'VPS 节点设置', n.node_paused && '节点本机'].filter(Boolean).join('、')}`, 'muted'));
     if (n.status && n.status.hostname) card.append(el('p', `${n.status.hostname} · ${n.status.cpus} 核 · ${n.status.arch}`, 'muted'));
     if (n.error) card.append(el('p', n.error, 'muted'));
     if (!n.online && n.last_seen && !n.last_seen.startsWith('0001')) card.append(el('p', `最后在线 ${date(n.last_seen)}`, 'muted'));
@@ -63,7 +69,7 @@ async function refreshNodes() {
         const cell = el('span', undefined, percentage === null ? 'unknown' : percentage >= 95 ? 'good' : percentage > 0 ? 'partial' : 'bad');
         cell.title = `${day.date} · ${percentage === null ? '未采样' : `在线 ${percentage}% · SSH 就绪 ${Math.round(day.ssh_ready / day.checks * 100)}% · ${day.checks} 次采样`}`; strip.append(cell);
       }
-      detail.append(strip, el('p', '每 30 秒采样，灰色表示无数据。', 'muted')); card.append(detail);
+      detail.append(strip); card.append(detail);
     }
     if (n.online && n.status) {
       for (const g of n.status.gpus || []) {
@@ -78,13 +84,24 @@ async function refreshNodes() {
       await toggleForwarding(`/api/nodes/${encodeURIComponent(n.id)}/forwarding`, !n.forwarding_paused, n.name);
       await refreshNodes();
     }));
-    if (me.admin) card.append(button('移除节点', async () => {
-      if (prompt(`输入节点名称「${n.name}」确认移除。现有 SSH 隧道将断开。`) !== n.name) return;
-      await api(`/api/nodes/${encodeURIComponent(n.id)}`, 'DELETE', {}); notice('节点已移除，连接凭证已撤销'); await refreshNodes();
-    }, 'secondary danger'));
     content.append(card);
   }
   if (nodes.some(n => n.id === selected)) select.value = selected;
+}
+async function refreshAdminNodes() {
+  const [savedNodes, forwarding] = await Promise.all([api('/api/nodes'), api('/api/forwarding')]);
+  forwardingControl('hub-forwarding', forwarding.paused, '/api/forwarding', '全部节点', refreshAdminNodes);
+  const content = $('admin-nodes'); content.replaceChildren();
+  if (!savedNodes.length) content.append(el('p', '暂无服务器。', 'muted'));
+  for (const n of savedNodes) {
+    const row = el('div', undefined, 'admin-node-row'), summary = el('div');
+    summary.append(el('strong', n.name), el('p', `${n.host}:${n.port} · ${n.online ? '在线' : '离线'}`, 'muted'));
+    row.append(summary, button('移除节点', async () => {
+      if (prompt(`输入「${n.name}」确认移除。配对凭证将撤销，SSH 会话将断开。`) !== n.name) return;
+      await api(`/api/nodes/${encodeURIComponent(n.id)}`, 'DELETE', {}); notice('节点已移除'); await refreshAdminNodes();
+    }, 'secondary danger'));
+    content.append(row);
+  }
 }
 async function refreshNode() {
   const s = await api('/api/node'); const content = $('local-status'); content.replaceChildren();
@@ -97,9 +114,9 @@ async function refreshNode() {
   show('pair-section', !s.paired);
 }
 async function toggleForwarding(path, paused, scope) {
-  if (paused && !confirm(`暂停${scope}的 SSH 转发？现有 SSH 会话和文件传输会立即断开，Web 界面继续可用。`)) return;
+  if (paused && !confirm(`暂停${scope}的 SSH 转发？现有 SSH 会话和文件传输将断开。`)) return;
   await api(path, 'PUT', { paused });
-  notice(paused ? 'SSH 转发已暂停，Web 和配对配置保留' : '已恢复此处的转发设置；其他位置的暂停需分别恢复');
+  notice(paused ? 'SSH 转发已暂停' : '已恢复此处的转发设置');
 }
 function forwardingControl(id, paused, path, scope, refresh) {
   $(id).replaceChildren(el('span', paused ? 'SSH 转发已暂停' : 'SSH 转发已启用', `badge ${paused ? '' : 'good'}`), button(paused ? '恢复 SSH 转发' : '暂停 SSH 转发', async () => { await toggleForwarding(path, !paused, scope); await refresh(); }));
@@ -112,7 +129,7 @@ async function refreshUsers() {
     if (user.username !== me.username) {
       actions.append(button(user.admin ? '设为普通用户' : '设为管理员', async () => { await api(`/api/users/${encodeURIComponent(user.username)}`, 'PATCH', { admin: !user.admin }); await refreshUsers(); }));
       actions.append(button('重置密码', async () => { const result = await passwordDialog(`重置 ${user.username} 的密码`, false); if (!result) return; await api(`/api/users/${encodeURIComponent(user.username)}`, 'PATCH', { password: result.password }); notice('密码已重置，原有登录已失效'); }));
-      actions.append(button('删除', async () => { if (!confirm(`删除控制台账号 ${user.username}？节点 Linux 账号需在节点管理。`)) return; await api(`/api/users/${encodeURIComponent(user.username)}`, 'DELETE', {}); await refreshUsers(); }, 'secondary danger'));
+      actions.append(button('删除', async () => { if (!confirm(`删除控制台账号 ${user.username}？`)) return; await api(`/api/users/${encodeURIComponent(user.username)}`, 'DELETE', {}); await refreshUsers(); }, 'secondary danger'));
     } else actions.append(el('span', '当前账号', 'muted'));
     row.append(actions); $('users').append(row);
   }
@@ -136,27 +153,27 @@ function passwordDialog(title, current) {
 async function changePassword() {
   const p = await passwordDialog('修改登录密码', true); if (!p) return; await api('/api/password', 'PUT', p); me = null; location.reload();
 }
-form('login-form', async data => { me = await api('/api/login', 'POST', { username: data.get('username'), password: data.get('password') }); $('login-form').elements.password.value = ''; show('notice', false); await dashboard(); });
-$('register-button').addEventListener('click', async () => {
+form('login-form', async data => { me = await api('/api/login', 'POST', { username: data.get('username'), password: data.get('password') }); $('login-form').elements.password.value = ''; show('notice', false); if (adminPage) { location.assign('/'); return; } await dashboard(); });
+on('register-button', 'click', async () => {
   const f = $('login-form'); if (!f.reportValidity()) return;
   try { await api('/api/register', 'POST', { username: f.elements.username.value, password: f.elements.password.value }); notice('账号已创建，请登录'); f.elements.password.value = ''; } catch (e) { notice(e.message, true); }
 });
-form('pair-form', async (data, f) => { await api('/api/pair', 'POST', { link: data.get('link').trim() }); f.reset(); notice('配对成功，正在建立隧道'); await refreshNode(); });
-form('invite-form', async data => { const result = await api('/api/invites', 'POST', { name: data.get('name') }); $('pair-link').value = result.link; $('invite-expiry').textContent = `有效期至 ${date(result.expires)} · 仅可使用一次`; show('invite-result'); });
+form('pair-form', async (data, f) => { await api('/api/pair', 'POST', { link: data.get('link').trim() }); f.reset(); notice('配对成功'); await refreshNode(); });
+form('invite-form', async data => { const result = await api('/api/invites', 'POST', { name: data.get('name') }); $('pair-link').value = result.link; $('invite-expiry').textContent = `截止 ${date(result.expires)} · 单次使用`; show('invite-result'); });
 form('ssh-form', async data => {
   const n = nodes.find(n => n.id === data.get('node')); if (!n || !n.ssh_ready) throw Error('节点 SSH 尚未就绪，请等待连接或检查节点 SSH 服务');
   const user = data.get('username'); if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}$/.test(user)) throw Error('Linux 用户名无效');
   $('ssh-command').textContent = `ssh -p ${n.port} ${user}@${n.host}`; show('ssh-result');
 });
 form('user-form', async (data, f) => { await api('/api/users', 'POST', { username: data.get('username'), password: data.get('password'), admin: data.has('admin') }); f.reset(); notice('账号已创建'); await refreshUsers(); });
-$('copy-link').addEventListener('click', () => copy($('pair-link').value));
-$('copy-ssh').addEventListener('click', () => copy($('ssh-command').textContent));
-$('audit-refresh').addEventListener('click', () => refreshAudit().catch(e => notice(e.message, true)));
-$('allow-register').addEventListener('change', async e => {
+on('copy-link', 'click', () => copy($('pair-link').value));
+on('copy-ssh', 'click', () => copy($('ssh-command').textContent));
+on('audit-refresh', 'click', () => refreshAudit().catch(e => notice(e.message, true)));
+on('allow-register', 'change', async e => {
   try { await api('/api/settings', 'PUT', { allow_register: e.target.checked }); notice('注册设置已保存'); } catch (err) { e.target.checked = !e.target.checked; notice(err.message, true); }
 });
 setInterval(async () => {
   if (refreshBusy || document.hidden) return; refreshBusy = true;
-  try { if (config.mode === 'node') await refreshNode(); else if (me) await refreshNodes(); } catch (e) { if (e.status === 401) { me = null; show('dashboard', false); show('auth'); $('toolbar').replaceChildren(); } else notice(e.message, true); } finally { refreshBusy = false; }
+  try { if (config.mode === 'node') await refreshNode(); else if (me) { if (adminPage) await refreshAdminNodes(); else await refreshNodes(); } } catch (e) { if (e.status === 401) { me = null; show('dashboard', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else notice(e.message, true); } finally { refreshBusy = false; }
 }, 5000);
 boot().catch(e => { show('loading', false); notice(e.message, true); });

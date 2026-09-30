@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-//go:embed index.html app.js style.css
+//go:embed index.html admin.html app.js style.css
 var files embed.FS
 
 func Handler() http.Handler {
@@ -21,7 +21,10 @@ func Handler() http.Handler {
 		if name == "/" {
 			name = "/index.html"
 		}
-		if name != "/index.html" && name != "/app.js" && name != "/style.css" {
+		if name == "/admin" || name == "/admin/" {
+			name = "/admin.html"
+		}
+		if name != "/admin.html" && name != "/index.html" && name != "/app.js" && name != "/style.css" {
 			http.NotFound(w, r)
 			return
 		}
