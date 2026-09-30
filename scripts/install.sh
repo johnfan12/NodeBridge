@@ -9,8 +9,8 @@ NodeBridge Linux/systemd 安装
   sudo bash scripts/install.sh hub --binary ./bin/nodebridge --public-url https://VPS_IP:9443
 
 可选：--binary /path/to/nodebridge，其余参数传递给 nodebridge。
-联网安装：设置 NODEBRIDGE_RELEASE_BASE_URL 为 Release 资产下载地址。
-例如 https://github.com/你的账号/NodeBridge/releases/download/v0.1.0
+联网安装：默认下载 https://github.com/johnfan12/NodeBridge/releases/latest/download
+可选：用 NODEBRIDGE_RELEASE_BASE_URL 指定其他 Release 或镜像地址。
 TEXT
 }
 
@@ -43,7 +43,7 @@ fi
 temp_dir=''
 trap '[[ -z $temp_dir ]] || rm -rf -- "$temp_dir"' EXIT
 if [[ -z $binary ]]; then
-  base=${NODEBRIDGE_RELEASE_BASE_URL:-}
+  base=${NODEBRIDGE_RELEASE_BASE_URL:-https://github.com/johnfan12/NodeBridge/releases/latest/download}
   [[ $base == https://* ]] || { echo '未找到二进制。请使用 Release 安装包、--binary，或设置 NODEBRIDGE_RELEASE_BASE_URL。' >&2; exit 1; }
   case $(uname -m) in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo '支持 amd64 和 arm64。' >&2; exit 1 ;; esac
   temp_dir=$(mktemp -d)

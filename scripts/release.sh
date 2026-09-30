@@ -5,6 +5,8 @@ GO=${GO:-go}
 VERSION=${VERSION:-dev}
 [[ $VERSION =~ ^[A-Za-z0-9._-]+$ ]] || { echo 'Invalid VERSION' >&2; exit 1; }
 mkdir -p dist
+cp scripts/install.sh dist/install.sh
+chmod 755 dist/install.sh
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
 for arch in amd64 arm64; do

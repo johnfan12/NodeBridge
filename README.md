@@ -49,7 +49,27 @@ cat data/hub/initial-admin.txt
 
 ## 一个命令安装服务
 
-Linux/systemd 的 Release 安装包包含 `nodebridge` 和 `install.sh`，不需要 Go 开发环境。解压后：
+在 Linux/systemd 机器上直接安装最新 Release，不需要 Go、Python、npm 或 FRP。
+
+**VPS（有公网 IP）：** 把下面的 `你的VPS公网IP` 换成实际 IP 或域名。
+
+```bash
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://你的VPS公网IP:9443
+```
+
+**内网服务器（无需公网 IP）：**
+
+```bash
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- node
+```
+
+安装后，在 VPS 控制台生成配对链接；在内网服务器执行 `nodebridge pair`，粘贴链接即可。也可以打开节点本地 `http://127.0.0.1:9899` 维护页面完成配对。
+
+脚本自动识别 amd64/arm64、下载对应安装包、校验 SHA-256，并配置 systemd 服务。所有服务以专用普通用户 `nodebridge` 运行，VPS 安装完成会显示首次管理员账号。VPS 需放行默认 TCP `9443` 和配置的 SSH 端口池，详情见下文。
+
+[最新 Release 和下载文件](https://github.com/johnfan12/NodeBridge/releases/latest) · [安装脚本](https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh)
+
+也可以手动下载 Release 安装包，解压后运行：
 
 ```bash
 # VPS
@@ -59,8 +79,6 @@ sudo ./install.sh hub --public-url https://你的VPS公网IP:9443
 sudo ./install.sh node
 ```
 
-节点安装后执行 `nodebridge pair` 粘贴链接即可。也可以打开本地维护页面。所有服务以专用普通用户 `nodebridge` 运行，安装完成会显示首次管理员账号。
-
 从源码构建后，也可以直接安装：
 
 ```bash
@@ -68,15 +86,15 @@ sudo bash scripts/install.sh hub --public-url https://你的VPS公网IP:9443
 sudo bash scripts/install.sh node
 ```
 
-网络一键下载需要先把此仓库发布到你自己的 Git 托管平台。项目已提供 GitHub Actions：推送 `v*` 标签后构建 amd64/arm64 安装包并创建 Release。当前只有本地 Git 仓库，**尚未配置远程仓库或发布下载地址**，下面是发布后的命令模板：
+默认下载仓库的最新正式 Release。需要指定版本或镜像时可以覆盖下载地址，例如固定安装 `v0.1.0`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/你的账号/NodeBridge/main/scripts/install.sh \
-  | sudo env NODEBRIDGE_RELEASE_BASE_URL=https://github.com/你的账号/NodeBridge/releases/download/v0.1.0 \
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/download/v0.1.0/install.sh \
+  | sudo env NODEBRIDGE_RELEASE_BASE_URL=https://github.com/johnfan12/NodeBridge/releases/download/v0.1.0 \
     bash -s -- hub --public-url https://你的VPS公网IP:9443
 ```
 
-节点使用同一条安装命令，把末尾的 `hub --public-url ...` 改成 `node`。脚本自动识别 CPU 架构，并校验 Release 文件的 SHA-256。
+项目通过 GitHub Actions 发布：推送 `v*` 标签后运行检查、构建安装包，并发布独立安装脚本和校验和。
 
 ## 需要填写的配置
 

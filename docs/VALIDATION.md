@@ -35,7 +35,7 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 
 ## 尚需部署验收
 
-- 当前创建的是本地 Git 仓库，没有远程仓库或公开 Release。
+- 此记录描述首次本地构建；后续发布状态以 [GitHub Releases](https://github.com/johnfan12/NodeBridge/releases) 和 [Actions](https://github.com/johnfan12/NodeBridge/actions) 为准。
 - 真实 VPS 到内网节点的外网连通、云安全组、SSH 登录/文件传输、长期断网恢复，需在目标机器上验收。
 - 安装脚本和 systemd 文件已检查，未实际修改本机系统服务或安装专用系统账号。
 - arm64 已交叉构建，尚未在真实 arm64 机器运行。
