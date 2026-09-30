@@ -4,6 +4,7 @@ const adminPage = document.body.dataset.page === 'admin';
 function on(id, event, action) { $(id)?.addEventListener(event, action); }
 let config = {}, me = null, nodes = [], refreshBusy = false;
 const expandedNodes = new Map();
+let proxyNodes = [];
 function show(id, visible = true) { const e = $(id); if (e) e.hidden = !visible; }
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function notice(message, error = false) { const target = $('ssh-dialog')?.open ? $('ssh-feedback') : $('notice'); target.textContent = message; target.className = error ? 'error' : ''; target.hidden = false; }
@@ -41,7 +42,7 @@ async function dashboard() {
     const link = el('a', adminPage ? '服务器一览' : '管理页面', 'toolbar-link'); link.href = adminPage ? '/' : '/admin'; toolbar.append(link);
   }
   toolbar.append(button('修改密码', changePassword), button('退出', logout));
-  if (adminPage) { activateTab(location.hash.slice(1)); await Promise.all([refreshAdminNodes(), refreshUsers(), refreshAudit()]); } else await refreshNodes();
+  if (adminPage) { activateTab(location.hash.slice(1)); await Promise.all([refreshAdminNodes(), refreshProxies(), refreshUsers(), refreshAudit()]); } else await refreshNodes();
 }
 async function logout() { await api('/api/logout', 'POST', {}); me = null; location.reload(); }
 function nodeState(n) {
@@ -49,7 +50,7 @@ function nodeState(n) {
   return { text: paused ? 'SSH 转发已暂停' : n.ssh_ready ? 'SSH 就绪' : n.online ? '在线 · SSH 未就绪' : '离线', cls: paused ? '' : n.ssh_ready ? 'good' : n.online ? 'bad' : '' };
 }
 function nodePauseButton(n, refresh) {
-  return button(n.forwarding_paused ? '恢复节点转发' : '暂停节点转发', async () => {
+  return button(n.forwarding_paused ? '恢复节点 SSH' : '暂停节点 SSH', async () => {
     await toggleForwarding(`/api/nodes/${encodeURIComponent(n.id)}/forwarding`, !n.forwarding_paused, n.name);
     await refresh();
   });
@@ -66,14 +67,15 @@ function openSSH(id) {
   $('ssh-form').elements.username.focus();
 }
 function listFocus(content) {
-  const active = document.activeElement, row = active.closest('[data-node-id]');
+  const active = document.activeElement, row = active.closest('[data-node-id], [data-proxy-id]');
   if (!row || !content.contains(active)) return null;
-  return { id: row.dataset.nodeId, index: [...row.querySelectorAll('button, summary')].indexOf(active) };
+  const key = row.dataset.proxyId ? 'proxyId' : 'nodeId';
+  return { key, id: row.dataset[key], index: [...row.querySelectorAll('button, summary, a')].indexOf(active) };
 }
 function restoreListFocus(content, focus) {
   if (!focus || document.activeElement !== document.body) return;
-  const row = [...content.querySelectorAll('[data-node-id]')].find(row => row.dataset.nodeId === focus.id);
-  row?.querySelectorAll('button, summary')[focus.index]?.focus({ preventScroll: true });
+  const row = [...content.querySelectorAll('[data-node-id], [data-proxy-id]')].find(row => row.dataset[focus.key] === focus.id);
+  row?.querySelectorAll('button, summary, a')[focus.index]?.focus({ preventScroll: true });
 }
 async function refreshNodes() {
   nodes = await api('/api/nodes');
@@ -146,7 +148,7 @@ async function refreshAdminNodes() {
     info.append(title, el('p', `${n.host}:${n.port}`, 'node-address'));
     const actions = el('div', undefined, 'actions');
     actions.append(nodePauseButton(n, refreshAdminNodes), button('移除节点', async () => {
-      if (prompt(`输入「${n.name}」确认移除。配对凭证将撤销，SSH 会话将断开。`) !== n.name) return;
+      if (prompt(`输入「${n.name}」确认移除。配对凭证将撤销，SSH 与全部 TCP 代理将删除，对应连接将断开。`) !== n.name) return;
       await api(`/api/nodes/${encodeURIComponent(n.id)}`, 'DELETE', {}); notice('节点已移除'); await refreshAdminNodes();
     }, 'secondary danger destructive-action'));
     row.append(info, actions); content.append(row);
@@ -162,14 +164,83 @@ async function refreshNode() {
   if (s.port) content.append(el('p', `固定公网端口：${s.port}`, 'muted'));
   forwardingControl('local-forwarding', s.forwarding_paused, '/api/forwarding', '这台节点', refreshNode);
   show('pair-section', !s.paired);
+  const ports = $('tcp-ports'); ports.replaceChildren();
+  if (!(s.tcp_ports || []).length) ports.append(el('p', '尚未授权 TCP 服务端口。', 'muted'));
+  for (const port of s.tcp_ports || []) {
+    const row = el('div', undefined, 'allowed-port-row');
+    row.append(el('code', `127.0.0.1:${port}`), button('撤销授权', async () => {
+      if (!confirm(`撤销端口 ${port} 的授权？该端口的转发连接将断开，SSH 不受影响。`)) return;
+      await api(`/api/tcp-ports/${port}`, 'DELETE', {}); notice('端口授权已撤销'); await refreshNode();
+    }, 'secondary danger')); ports.append(row);
+  }
+  forwardingControl('local-tcp-forwarding', s.tcp_paused, '/api/tcp-forwarding', '这台节点', refreshNode, 'TCP');
 }
-async function toggleForwarding(path, paused, scope) {
-  if (paused && !confirm(`暂停${scope}的 SSH 转发？现有 SSH 会话和文件传输将断开。`)) return;
+async function toggleForwarding(path, paused, scope, kind = 'SSH') {
+  if (paused && !confirm(`暂停${scope}的 ${kind} 转发？对应的连接和文件传输将断开。`)) return;
   await api(path, 'PUT', { paused });
-  notice(paused ? 'SSH 转发已暂停' : '已恢复此处的转发设置');
+  notice(paused ? `${kind} 转发已暂停` : '已恢复此处的转发设置');
 }
-function forwardingControl(id, paused, path, scope, refresh) {
-  $(id).replaceChildren(el('span', paused ? 'SSH 转发已暂停' : 'SSH 转发已启用', `badge ${paused ? '' : 'good'}`), button(paused ? '恢复 SSH 转发' : '暂停 SSH 转发', async () => { await toggleForwarding(path, !paused, scope); await refresh(); }));
+function forwardingControl(id, paused, path, scope, refresh, kind = 'SSH') {
+  $(id).replaceChildren(el('span', paused ? `${kind} 转发已暂停` : `${kind} 转发已启用`, `badge ${paused ? '' : 'good'}`), button(paused ? `恢复 ${kind} 转发` : `暂停 ${kind} 转发`, async () => { await toggleForwarding(path, !paused, scope, kind); await refresh(); }));
+}
+function proxyTargetOptions() {
+  const form = $('proxy-form'), target = form.elements.target_port, selected = target.value;
+  const node = proxyNodes.find(n => n.id === form.elements.node.value);
+  const ports = node?.status?.tcp_ports || [];
+  target.replaceChildren();
+  if (!ports.length) { const option = el('option', '请先在节点授权端口'); option.value = ''; target.append(option); }
+  for (const p of ports) {
+    const option = el('option', `${p.port}${p.ready ? '' : '（本机服务未就绪）'}`); option.value = String(p.port); target.append(option);
+  }
+  if (ports.some(p => String(p.port) === selected)) target.value = selected;
+}
+async function refreshProxies() {
+  const [result, savedNodes] = await Promise.all([api('/api/proxies'), api('/api/nodes')]);
+  proxyNodes = savedNodes;
+  const form = $('proxy-form'), select = form.elements.node, selected = select.value;
+  const key = JSON.stringify(savedNodes.map(n => [n.id, n.name, n.status?.tcp_ports]));
+  if (select.dataset.nodes !== key) {
+    select.replaceChildren();
+    if (!savedNodes.length) { const option = el('option', '请先接入服务器'); option.value = ''; select.append(option); }
+    for (const n of savedNodes) { const option = el('option', n.name); option.value = n.id; select.append(option); }
+    if (savedNodes.some(n => n.id === selected)) select.value = selected;
+    proxyTargetOptions(); select.dataset.nodes = key;
+  }
+  form.elements.port.min = result.port_start; form.elements.port.max = result.port_end;
+  $('proxy-port-range').textContent = `公网端口范围 ${result.port_start}–${result.port_end}，留空自动分配。VPS 防火墙需放行所分配端口。域名与 HTTPS 可后续配置。`;
+  $('proxy-summary').textContent = `${result.items.filter(p => p.kind === 'ssh').length} 个 SSH · ${result.items.filter(p => p.kind === 'tcp').length} 个 TCP 转发`;
+  const content = $('proxies'), focus = listFocus(content); content.replaceChildren();
+  if (!result.items.length) content.append(el('p', '接入服务器后会自动显示 SSH 代理；Overleaf 可另外创建端口转发。', 'empty-state muted'));
+  for (const p of result.items) {
+    const row = el('article', undefined, 'proxy-row'), head = el('div', undefined, 'node-head'), info = el('div', undefined, 'node-info'), title = el('div', undefined, 'node-title');
+    row.dataset.proxyId = p.id;
+    const status = p.effective_paused ? '已暂停' : !p.online ? '节点离线' : !p.allowed ? '端口未授权' : p.ready ? '转发就绪' : '服务未就绪';
+    title.append(el('h3', p.name), el('span', p.kind === 'ssh' ? 'SSH' : 'TCP', 'proxy-kind'), el('span', status, `badge ${p.ready ? 'good' : ''}`));
+    const address = `${p.host.includes(':') ? '[' + p.host + ']' : p.host}:${p.port}`;
+    const value = p.kind === 'tcp' && p.scheme !== 'tcp' ? `${p.scheme}://${address}` : address;
+    info.append(title, el('p', `${value} → ${p.node_name} · ${p.target_port ? '127.0.0.1:' + p.target_port : '本机 SSH'}`, 'node-address'));
+    const actions = el('div', undefined, 'actions');
+    actions.append(button('复制地址', () => copy(value)));
+    if (p.kind === 'tcp' && p.scheme !== 'tcp') {
+      const link = el('a', '打开', 'toolbar-link'); link.href = value; link.target = '_blank'; link.rel = 'noopener noreferrer'; actions.append(link);
+    }
+    const retry = p.kind === 'tcp' && Boolean(p.error) && !p.paused;
+    actions.append(button(retry ? '重试监听' : p.paused ? '恢复转发' : '暂停转发', async () => {
+      const path = p.kind === 'ssh' ? `/api/nodes/${encodeURIComponent(p.node_id)}/forwarding` : `/api/proxies/${encodeURIComponent(p.id)}/forwarding`;
+      if (retry) await api(path, 'PUT', { paused: false });
+      else await toggleForwarding(path, !p.paused, p.name, p.kind === 'ssh' ? 'SSH' : 'TCP');
+      await refreshProxies();
+    }));
+    if (p.kind === 'tcp') actions.append(button('删除代理', async () => {
+      if (prompt(`输入「${p.name}」确认删除代理。对应连接将断开，SSH 与本机 Overleaf 服务保留。`) !== p.name) return;
+      await api(`/api/proxies/${encodeURIComponent(p.id)}`, 'DELETE', {}); notice('代理已删除，公网端口已回收'); await refreshProxies();
+    }, 'secondary danger destructive-action'));
+    head.append(info, actions); row.append(head);
+    if (p.error) row.append(el('p', p.error, 'muted'));
+    if (p.effective_paused && !p.paused) row.append(el('p', p.kind === 'ssh' ? '全局或本机 SSH 已暂停，请在对应位置恢复。' : '节点本机 TCP 转发已暂停，请在节点维护页恢复。', 'muted'));
+    content.append(row);
+  }
+  restoreListFocus(content, focus);
 }
 async function refreshUsers() {
   const users = await api('/api/users'); $('users').replaceChildren();
@@ -252,12 +323,19 @@ function toggleInline(buttonId, sectionId, inputName) {
   if (!section.hidden) section.querySelector(`[name="${inputName}"]`).focus();
 }
 on('invite-toggle', 'click', () => toggleInline('invite-toggle', 'invite-section', 'name'));
+on('proxy-toggle', 'click', () => toggleInline('proxy-toggle', 'proxy-section', 'name'));
+on('proxy-form', 'change', e => { if (e.target.name === 'node') proxyTargetOptions(); });
+form('proxy-form', async (data, f) => {
+  await api('/api/proxies', 'POST', { name: data.get('name'), node_id: data.get('node'), target_port: Number(data.get('target_port')), port: Number(data.get('port')) || 0, scheme: data.get('scheme') });
+  f.reset(); proxyTargetOptions(); notice('端口转发已创建'); await refreshProxies();
+});
+form('tcp-port-form', async (data, f) => { await api('/api/tcp-ports', 'POST', { port: Number(data.get('port')) }); f.reset(); notice('端口已授权，可在 VPS 代理页创建转发'); await refreshNode(); });
 on('user-toggle', 'click', () => toggleInline('user-toggle', 'user-section', 'username'));
 on('ssh-close', 'click', () => $('ssh-dialog').close());
 on('ssh-dialog', 'close', () => show('ssh-feedback', false));
 on('ssh-form', 'input', () => { show('ssh-result', false); show('ssh-feedback', false); });
 setInterval(async () => {
   if (refreshBusy || document.hidden) return; refreshBusy = true;
-  try { if (config.mode === 'node') await refreshNode(); else if (me) { if (adminPage) await refreshAdminNodes(); else await refreshNodes(); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else notice(e.message, true); } finally { refreshBusy = false; }
+  try { if (config.mode === 'node') await refreshNode(); else if (me) { if (adminPage) await Promise.all([refreshAdminNodes(), refreshProxies()]); else await refreshNodes(); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else notice(e.message, true); } finally { refreshBusy = false; }
 }, 5000);
 boot().catch(e => { show('loading', false); notice(e.message, true); });

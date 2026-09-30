@@ -66,3 +66,16 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 - Playwright 使用真实 hub/node 配对和三个节点记录验证列表、SSH 弹窗与 Escape、页签切换及 URL 恢复、键盘导航、账号创建、暂停恢复、普通用户权限。
 - 验证自动刷新后运行详情展开状态与键盘焦点保留；320 px 和 390 px 的首页、管理页、账号页、本机维护页及连接弹窗无页面横向溢出。
 - `make check` 和 Linux amd64/arm64 Release 构建通过。截图保存在本地 dist/ui-hub.png、ui-admin.png、ui-connect.png、ui-mobile.png、ui-admin-mobile.png、ui-node.png。
+
+## SSH 与 Overleaf/TCP 代理（v0.2.0）
+
+- `make check` 通过，包括 Go vet、竞态检测、JavaScript 与 Bash 语法检查。无需新增生产依赖。
+- 使用真实 HTTPS hub、主动连接的 node 和模拟 HTTP/WebSocket 后端，验证 1,020,000 字节上传与回传，HTTP 路径/查询/Host/Cookie 保留，WebSocket 双向消息通过公网代理端口正常收发。
+- hub 单 TCP 代理和节点本机 TCP 暂停均在 1 秒内断开现有 WebSocket，阻止新连接，同时保持原 SSH 连接；SSH 的全局、单节点、本机暂停不影响 TCP 服务。
+- 未本机授权的目标、SSH 与维护端口不能通过 TCP 类型连接；撤销授权立即关闭对应连接并持久化。即使直接向节点发起未授权类型 3 请求也被拒绝。
+- SSH/TCP 共用端口池，验证 SSH 端口冲突、外部端口占用导致分配失败、重复目标拒绝、删除代理回收原端口、删除节点清理关联代理。
+- 重开 hub 恢复代理端口与暂停状态；模拟外部端口占用显示监听失败，释放后恢复操作重试同一端口成功。节点授权和 TCP 暂停配置重读正确。
+- 新管理接口全部要求管理员身份；未登录返回 401，普通用户返回 403。
+- Playwright 验证 UI 配对、本机授权、创建代理、打开模拟服务页面、两处 TCP 暂停/恢复、撤销授权、删除代理、普通用户权限与管理页跳转。
+- 代理列表自动刷新保留按钮焦点；320/390 px 下代理页（含创建表单）和节点授权页无横向溢出，手机字段高度正常。截图为本机忽略的 `dist/ui-proxies.png`、`ui-proxy-mobile.png` 和 `ui-node-tcp.png`。
+- Linux amd64/arm64 发布包通过本地构建。实际 Overleaf 实例、公网防火墙和真实多人编辑仍需在目标部署验证；本版未集成域名、Nginx 或自动证书。

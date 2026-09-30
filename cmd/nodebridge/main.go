@@ -181,7 +181,7 @@ nodebridge node
 nodebridge pair
 nodebridge version
 
-hub: HTTPS 控制台、自动配对、SSH 公网端口分配
+hub: HTTPS 控制台、自动配对、SSH/TCP 公网端口分配
 node: 主动连接 hub，http://127.0.0.1:9899 本地配对页面
 
 使用 nodebridge hub -h 或 nodebridge node -h 查看参数。`)

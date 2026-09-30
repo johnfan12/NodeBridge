@@ -11,6 +11,7 @@ import (
 const (
 	SSH    byte = 1
 	Status byte = 2
+	TCP    byte = 3
 )
 
 func Config() *yamux.Config {

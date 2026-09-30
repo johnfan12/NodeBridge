@@ -19,6 +19,11 @@
       <section class="workspace local-workspace">
         <div class="workspace-head"><h2>连接状态</h2></div>
         <div class="workspace-body"><div id="local-status"></div><div id="local-forwarding" class="forwarding-controls"></div></div>
+        <details class="workspace-section service-settings" id="tcp-services"><summary>Overleaf / TCP 端口转发</summary>
+          <p class="muted">授权本机服务端口后，可在 VPS 的“代理”页创建公网转发。SSH 与 TCP 服务分别控制。</p>
+          <form id="tcp-port-form" class="row"><label>本机服务端口<input name="port" type="number" min="1" max="65535" placeholder="例如 8080" required></label><button type="submit">授权端口</button></form>
+          <div id="tcp-ports"></div><div id="local-tcp-forwarding" class="forwarding-controls"></div>
+        </details>
         <section id="pair-section" class="workspace-section"><h2>接入控制台</h2><p class="muted">粘贴 VPS 生成的配对链接。</p><form id="pair-form"><label>配对链接<textarea name="link" placeholder="nodebridge://pair/…" rows="4" required maxlength="8192" spellcheck="false"></textarea></label><button>配对并连接</button></form></section>
       </section>
     </section>

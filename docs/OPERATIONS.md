@@ -76,7 +76,7 @@ sudo systemctl start nodebridge-node
 nodebridge pair
 ```
 
-这会重新生成默认节点配置，本地 SSH 自定义端口需在新的 `config.json` 中恢复。旧 Linux 用户、SSH 服务和用户文件不受影响。
+这会重新生成默认节点配置，本地 SSH 自定义端口与 TCP 授权需在新配置中恢复；hub 中移除节点也会删除其全部 TCP 代理。旧 Linux 用户、SSH 服务和用户文件不受影响。
 
 ## 备份与恢复
 
@@ -94,7 +94,7 @@ hub 重启时若原端口被其他服务占用，会保留端口记录并显示�
 
 ## 更新与卸载
 
-新版安装包执行同样的安装命令，会原子替换二进制并重启对应模式的服务，已有配置和数据库保留。首次管理员密码文件只存在于尚未修改初始密码的部署。
+新版安装包执行同样的安装命令，会原子替换二进制并重启对应模式的服务，已有配置和数据库保留；服务重启会中断经过它的 SSH/TCP 连接，安排在空闲时更新。首次管理员密码文件只存在于尚未修改初始密码的部署。
 
 WebUI 随二进制一起更新。已安装用户重新执行 README 中对应模式的一键安装命令即可获取新版界面；升级后刷新浏览器。
 
@@ -120,4 +120,37 @@ sudo bash uninstall.sh node --purge
 # 本机两种模式：sudo bash uninstall.sh all --purge
 ```
 
-卸载 node 后在 hub 控制台移除对应节点可撤销凭证、回收端口。卸载 hub 会中断所有 SSH 转发；清理数据后重装需重新创建账号并重新配对所有节点。卸载不会停止系统 sshd、修改防火墙或删除用户文件。手动部署的自定义进程、数据路径需自行清理。
+卸载 node 后在 hub 控制台移除对应节点可撤销凭证、回收端口。卸载 hub 会中断所有 SSH/TCP 转发；清理数据后重装需重新创建账号并重新配对所有节点。卸载不会停止系统 sshd、修改防火墙或删除用户文件。手动部署的自定义进程、数据路径需自行清理。
+
+## Overleaf / TCP 代理排障
+
+先在节点执行 `curl http://127.0.0.1:8080`，确认服务正常；再在维护页授权实际端口。Docker/Toolkit 的宿主机端口需要绑定 `127.0.0.1` 或包含该地址，不能只监听容器内地址或另一块网卡。
+
+VPS “代理”页签中：
+
+- “端口未授权”：节点维护页未授权，或授权已经撤销。
+- “服务未就绪”：授权存在但本机端口未监听，或者公网监听失败；列表会显示端口冲突详情。
+- “节点离线”：检查节点服务和到 hub 的管理连接。
+- “已暂停”：检查单代理开关以及节点本机 TCP 开关；SSH 开关不影响 TCP 服务。
+
+状态正常但外网无法访问时，确认云安全组与 VPS 防火墙放行分配的端口。端口池由 SSH 和 TCP 共用。节点和服务状态每 10 秒上报，新增/撤销授权和暂停会触发及时上报；页面每 5 秒刷新。
+
+原始 TCP 转发保留 WebSocket 和 HTTP 流量，服务自己的登录和权限负责访问控制。若 Overleaf 的重定向/链接仍指向 localhost，需要把 Overleaf 的站点地址改为外部地址，参见 [Overleaf 个性化配置](https://docs.overleaf.com/on-premises/installation/using-the-toolkit/5.-personalizing-your-instance)。NodeBridge 不修改 Overleaf 容器或站点配置。
+
+暂停本机全部额外 TCP 转发（保留 SSH/Web）：
+
+```bash
+curl -fsS -X PUT http://127.0.0.1:9899/api/tcp-forwarding \
+  -H 'Content-Type: application/json' -H 'X-NodeBridge-Request: 1' \
+  -d '{"paused":true}'
+# 恢复时改为 {"paused":false}
+```
+
+撤销某个本机端口授权：
+
+```bash
+curl -fsS -X DELETE http://127.0.0.1:9899/api/tcp-ports/8080 \
+  -H 'Content-Type: application/json' -H 'X-NodeBridge-Request: 1'
+```
+
+TCP 代理重启时保留原端口；若该端口被其他进程占用，先释放它，再在代理列表点击“重试监听”（暂停的代理使用“恢复转发”）。删除代理释放公网端口，但不撤销节点的本机授权或停止实际服务。

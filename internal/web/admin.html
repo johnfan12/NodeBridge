@@ -19,6 +19,7 @@
       <section class="workspace">
         <div class="admin-tabs" role="tablist" aria-label="管理功能">
           <button id="tab-servers" role="tab" type="button" aria-selected="true" aria-controls="panel-servers" data-tab="servers">服务器</button>
+          <button id="tab-proxies" role="tab" type="button" aria-selected="false" aria-controls="panel-proxies" data-tab="proxies" tabindex="-1">代理</button>
           <button id="tab-accounts" role="tab" type="button" aria-selected="false" aria-controls="panel-accounts" data-tab="accounts" tabindex="-1">账号</button>
           <button id="tab-activity" role="tab" type="button" aria-selected="false" aria-controls="panel-activity" data-tab="activity" tabindex="-1">操作记录</button>
         </div>
@@ -27,6 +28,22 @@
           <section id="invite-section" class="workspace-section inline-form" hidden><h2>接入新服务器</h2><form id="invite-form" class="row"><label>节点名称<input name="name" placeholder="例如 实验室服务器" required maxlength="100"></label><button>生成配对链接</button></form><div id="invite-result" hidden><div class="copy-row"><textarea id="pair-link" rows="3" readonly spellcheck="false"></textarea><button id="copy-link" type="button" class="secondary">复制链接</button></div><p id="invite-expiry" class="muted"></p><p class="muted">在节点运行 <code>nodebridge pair</code>，粘贴链接。</p></div></section>
           <div id="admin-nodes"></div>
           <details class="workspace-section service-settings"><summary>全局 SSH 转发设置</summary><div id="hub-forwarding" class="forwarding-controls"></div><p class="muted">暂停将断开全部服务器的 SSH 会话，Web 控制台继续可用。</p></details>
+        </section>
+        <section id="panel-proxies" role="tabpanel" aria-labelledby="tab-proxies" hidden>
+          <div class="workspace-head"><div><h2>代理管理</h2><p id="proxy-summary" class="muted"></p></div><button id="proxy-toggle" type="button" aria-expanded="false" aria-controls="proxy-section">创建端口转发</button></div>
+          <section id="proxy-section" class="workspace-section inline-form" hidden>
+            <p class="muted">先在节点维护页授权 Overleaf 的本机端口，再选择节点创建转发。</p>
+            <form id="proxy-form" class="row">
+              <label>名称<input name="name" placeholder="例如 Overleaf" required maxlength="100"></label>
+              <label>节点<select name="node" required></select></label>
+              <label>本机端口<select name="target_port" required></select></label>
+              <label>公网端口<input name="port" type="number" placeholder="自动分配"></label>
+              <label>访问方式<select name="scheme"><option value="http">HTTP（Overleaf）</option><option value="tcp">其他 TCP 服务</option></select></label>
+              <button type="submit">创建转发</button>
+            </form>
+            <p id="proxy-port-range" class="muted"></p>
+          </section>
+          <div id="proxies"></div>
         </section>
         <section id="panel-accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
           <div class="workspace-head"><h2>账号管理</h2><div class="actions"><label class="check"><input id="allow-register" type="checkbox">允许自助注册</label><button id="user-toggle" type="button" aria-expanded="false" aria-controls="user-section">创建账号</button></div></div>

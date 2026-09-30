@@ -52,7 +52,19 @@ type Audit struct {
 	Target string    `json:"target"`
 }
 
+type Proxy struct {
+	ID         string    `json:"id"`
+	NodeID     string    `json:"node_id"`
+	Name       string    `json:"name"`
+	TargetPort int       `json:"target_port"`
+	Port       int       `json:"port"`
+	Scheme     string    `json:"scheme"`
+	Paused     bool      `json:"paused"`
+	Created    time.Time `json:"created"`
+}
+
 type State struct {
+	Proxies          map[string]Proxy   `json:"proxies,omitempty"`
 	ForwardingPaused bool               `json:"forwarding_paused,omitempty"`
 	Version          int                `json:"version"`
 	Users            map[string]User    `json:"users"`
@@ -90,12 +102,15 @@ func Open(dir string) (*Store, error) {
 }
 
 func read(tx *bolt.Tx) (State, error) {
-	s := State{Version: 1, Users: map[string]User{}, Sessions: map[string]Session{}, Invites: map[string]Invite{}, Nodes: map[string]Node{}, Audit: []Audit{}, Daily: map[string]Daily{}}
+	s := State{Proxies: map[string]Proxy{}, Version: 1, Users: map[string]User{}, Sessions: map[string]Session{}, Invites: map[string]Invite{}, Nodes: map[string]Node{}, Audit: []Audit{}, Daily: map[string]Daily{}}
 	b := tx.Bucket([]byte("state"))
 	if b != nil && b.Get([]byte("v1")) != nil {
 		if err := json.Unmarshal(b.Get([]byte("v1")), &s); err != nil {
 			return s, err
 		}
+	}
+	if s.Proxies == nil {
+		s.Proxies = map[string]Proxy{}
 	}
 	if s.Version != 1 {
 		return s, fmt.Errorf("unsupported database schema version %d", s.Version)

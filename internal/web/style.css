@@ -205,3 +205,17 @@ dialog::backdrop { background: rgb(0 0 0 / 32%); }
   td .actions { min-width: 170px; }
 }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+
+.proxy-row { padding: 22px 24px; border-bottom: 1px solid var(--divider); }
+.proxy-row:last-child { border-bottom: 0; }
+.proxy-row .node-head { flex-wrap: wrap; }
+.proxy-row .node-info { flex-basis: 420px; }
+.proxy-kind { color: var(--muted); font-size: 12px; font-weight: 600; }
+.allowed-port-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--divider); }
+#tcp-port-form { margin: 16px 0; }
+#proxy-form label { flex-basis: 180px; }
+@media (max-width: 720px) {
+ .proxy-row { padding: 20px 16px; }
+ .proxy-row .node-info { flex-basis: auto; }
+ #proxy-form label { flex-basis: auto; }
+}

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,16 +23,25 @@ type GPU struct {
 	Power       *float64 `json:"power_watts"`
 }
 
+type PortStatus struct {
+	Port  int  `json:"port"`
+	Ready bool `json:"ready"`
+}
+
 type Status struct {
-	ForwardingPaused bool      `json:"forwarding_paused,omitempty"`
-	Hostname         string    `json:"hostname"`
-	OS               string    `json:"os"`
-	Arch             string    `json:"arch"`
-	CPUs             int       `json:"cpus"`
-	SSHReady         bool      `json:"ssh_ready"`
-	GPUs             []GPU     `json:"gpus"`
-	GPUError         string    `json:"gpu_error,omitempty"`
-	At               time.Time `json:"at"`
+	TCPEnabled       bool         `json:"tcp_enabled,omitempty"`
+	TCPPaused        bool         `json:"tcp_paused,omitempty"`
+	TCPPorts         []PortStatus `json:"tcp_ports,omitempty"`
+	SSHPort          int          `json:"ssh_port,omitempty"`
+	ForwardingPaused bool         `json:"forwarding_paused,omitempty"`
+	Hostname         string       `json:"hostname"`
+	OS               string       `json:"os"`
+	Arch             string       `json:"arch"`
+	CPUs             int          `json:"cpus"`
+	SSHReady         bool         `json:"ssh_ready"`
+	GPUs             []GPU        `json:"gpus"`
+	GPUError         string       `json:"gpu_error,omitempty"`
+	At               time.Time    `json:"at"`
 }
 
 func number(s string) *float64 {
@@ -69,4 +79,26 @@ func Collect(ctx context.Context, sshPort int) Status {
 		s.GPUs = append(s.GPUs, GPU{strings.TrimSpace(r[0]), strings.TrimSpace(r[1]), number(r[2]), number(r[3]), number(r[4]), number(r[5]), number(r[6])})
 	}
 	return s
+}
+
+// Bound probes to half a second overall, including a node with unavailable ports.
+func ProbePorts(ctx context.Context, ports []int) []PortStatus {
+	result := make([]PortStatus, len(ports))
+	var wg sync.WaitGroup
+	for i, port := range ports {
+		wg.Add(1)
+		go func(i, port int) {
+			defer wg.Done()
+			result[i].Port = port
+			probe, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+			defer cancel()
+			conn, err := (&net.Dialer{}).DialContext(probe, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+			if err == nil {
+				result[i].Ready = true
+				conn.Close()
+			}
+		}(i, port)
+	}
+	wg.Wait()
+	return result
 }

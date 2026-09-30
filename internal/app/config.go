@@ -25,20 +25,22 @@ import (
 )
 
 type Config struct {
-	ForwardingPaused bool   `json:"forwarding_paused,omitempty"`
-	Mode             string `json:"mode"`
-	Listen           string `json:"listen"`
-	PublicURL        string `json:"public_url,omitempty"`
-	PortStart        int    `json:"port_start,omitempty"`
-	PortEnd          int    `json:"port_end,omitempty"`
-	HubURL           string `json:"hub_url,omitempty"`
-	Fingerprint      string `json:"fingerprint,omitempty"`
-	NodeID           string `json:"node_id,omitempty"`
-	Credential       string `json:"credential,omitempty"`
-	SSHPort          int    `json:"ssh_port,omitempty"`
-	PublicPort       int    `json:"public_port,omitempty"`
-	CertFile         string `json:"cert_file,omitempty"`
-	KeyFile          string `json:"key_file,omitempty"`
+	AllowedTCPPorts     []int  `json:"allowed_tcp_ports,omitempty"`
+	TCPForwardingPaused bool   `json:"tcp_forwarding_paused,omitempty"`
+	ForwardingPaused    bool   `json:"forwarding_paused,omitempty"`
+	Mode                string `json:"mode"`
+	Listen              string `json:"listen"`
+	PublicURL           string `json:"public_url,omitempty"`
+	PortStart           int    `json:"port_start,omitempty"`
+	PortEnd             int    `json:"port_end,omitempty"`
+	HubURL              string `json:"hub_url,omitempty"`
+	Fingerprint         string `json:"fingerprint,omitempty"`
+	NodeID              string `json:"node_id,omitempty"`
+	Credential          string `json:"credential,omitempty"`
+	SSHPort             int    `json:"ssh_port,omitempty"`
+	PublicPort          int    `json:"public_port,omitempty"`
+	CertFile            string `json:"cert_file,omitempty"`
+	KeyFile             string `json:"key_file,omitempty"`
 }
 
 type Pairing struct {
@@ -125,6 +127,9 @@ func (c Config) Validate() error {
 		}
 		if c.SSHPort < 1 || c.SSHPort > 65535 {
 			return errors.New("节点 SSH 端口无效")
+		}
+		if err := c.validateTCPPorts(); err != nil {
+			return err
 		}
 		if c.NodeID != "" {
 			if _, err = validateURL(c.HubURL); err != nil {
