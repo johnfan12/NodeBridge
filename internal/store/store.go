@@ -52,6 +52,14 @@ type Audit struct {
 	Target string    `json:"target"`
 }
 
+type Announcement struct {
+	ID      string    `json:"id"`
+	Title   string    `json:"title"`
+	Content string    `json:"content"`
+	Author  string    `json:"author"`
+	Created time.Time `json:"created"`
+}
+
 type State struct {
 	LegacyTCPProxies json.RawMessage    `json:"proxies,omitempty"`
 	ForwardingPaused bool               `json:"forwarding_paused,omitempty"`
@@ -61,6 +69,7 @@ type State struct {
 	Invites          map[string]Invite  `json:"invites"`
 	Nodes            map[string]Node    `json:"nodes"`
 	Audit            []Audit            `json:"audit"`
+	Announcements    []Announcement     `json:"announcements,omitempty"`
 	AllowRegister    bool               `json:"allow_register"`
 	Daily            map[string]Daily   `json:"daily"`
 }

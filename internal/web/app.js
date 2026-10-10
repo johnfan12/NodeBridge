@@ -4,6 +4,7 @@ const adminPage = document.body.dataset.page === 'admin';
 function on(id, event, action) { $(id)?.addEventListener(event, action); }
 let config = {}, me = null, nodes = [], refreshBusy = false;
 const expandedNodes = new Map();
+let announcementsKey = '';
 function show(id, visible = true) { const e = $(id); if (e) e.hidden = !visible; }
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function notice(message, error = false) { const target = $('ssh-dialog')?.open ? $('ssh-feedback') : $('notice'); target.textContent = message; target.className = error ? 'error' : ''; target.hidden = false; }
@@ -41,7 +42,7 @@ async function dashboard() {
     const link = el('a', adminPage ? '服务器一览' : '管理页面', 'toolbar-link'); link.href = adminPage ? '/' : '/admin'; toolbar.append(link);
   }
   toolbar.append(button('修改密码', changePassword), button('退出', logout));
-  if (adminPage) { activateTab(location.hash.slice(1)); await Promise.all([refreshAdminNodes(), refreshUsers(), refreshAudit()]); } else await refreshNodes();
+  if (adminPage) { activateTab(location.hash.slice(1)); await Promise.all([refreshAdminNodes(), refreshUsers(), refreshAudit(), refreshAnnouncements()]); } else await Promise.all([refreshNodes(), refreshAnnouncements()]);
 }
 async function logout() { await api('/api/logout', 'POST', {}); me = null; location.reload(); }
 function nodeState(n) {
@@ -188,6 +189,47 @@ async function refreshAudit() {
   const audit = await api('/api/audit'); $('audit').replaceChildren();
   for (const entry of audit.slice(-50).reverse()) $('audit').append(el('p', `${date(entry.at)} · ${entry.actor} · ${entry.action}${entry.target ? ' · ' + entry.target : ''}`));
 }
+function announcementArticle(item) {
+  const article = el('article', undefined, 'announcement');
+  article.append(el('h3', item.title), el('p', item.content, 'announcement-content'), el('p', `${item.author} · ${date(item.created)}`, 'announcement-meta'));
+  return article;
+}
+async function refreshAnnouncements() {
+  const items = await api('/api/announcements');
+  if (!me) return;
+  const key = JSON.stringify([me.admin, items]);
+  if (key === announcementsKey) return;
+  if (adminPage) {
+    const content = $('admin-announcements'), focusedID = document.activeElement.closest('[data-announcement-id]')?.dataset.announcementId;
+    content.replaceChildren(); $('announcement-count').textContent = `${items.length} / 20 条`;
+    if (!items.length) {
+      const empty = el('div', undefined, 'empty-state');
+      empty.append(el('h3', '还没有公告'), el('p', '发布维护通知或使用说明，让用户在首页看到。', 'muted')); content.append(empty);
+    }
+    for (const item of items) {
+      const article = announcementArticle(item); article.classList.add('admin-announcement'); article.dataset.announcementId = item.id;
+      const actions = el('div', undefined, 'actions');
+      const withdraw = button('撤下公告', async () => {
+        if (!confirm(`撤下「${item.title}」？用户首页将不再显示这条公告。`)) return;
+        await api(`/api/announcements/${encodeURIComponent(item.id)}`, 'DELETE', {});
+        notice('公告已撤下'); await Promise.all([refreshAnnouncements(), refreshAudit()]);
+      }, 'secondary danger');
+      withdraw.setAttribute('aria-label', `撤下公告：${item.title}`); actions.append(withdraw); article.append(actions); content.append(article);
+    }
+    if (focusedID && document.activeElement === document.body) {
+      [...content.children].find(article => article.dataset.announcementId === focusedID)?.querySelector('button')?.focus({ preventScroll: true });
+    }
+  } else {
+    show('announcement-board', items.length > 0); show('announcement-manage', me.admin);
+    $('announcement-latest').replaceChildren(); $('announcement-older').replaceChildren();
+    if (items.length) $('announcement-latest').append(announcementArticle(items[0]));
+    show('announcement-history', items.length > 1);
+    if (items.length <= 1) $('announcement-history').open = false;
+    $('announcement-history-title').textContent = `较早公告（${Math.max(0, items.length - 1)}）`;
+    for (const item of items.slice(1)) $('announcement-older').append(announcementArticle(item));
+  }
+  announcementsKey = key;
+}
 function passwordDialog(title, current) {
   return new Promise(resolve => {
     const dialog = el('dialog', undefined, 'card'), f = el('form'); f.className = 'row'; dialog.append(el('h2', title), f);
@@ -216,6 +258,10 @@ form('ssh-form', async data => {
   $('ssh-command').textContent = `ssh -p ${n.port} ${user}@${n.host}`; show('ssh-result');
 });
 form('user-form', async (data, f) => { await api('/api/users', 'POST', { username: data.get('username'), password: data.get('password'), admin: data.has('admin') }); f.reset(); notice('账号已创建'); await refreshUsers(); });
+form('announcement-form', async (data, f) => {
+  await api('/api/announcements', 'POST', { title: data.get('title').trim(), content: data.get('content').trim() });
+  f.reset(); notice('公告已发布，用户首页将自动更新'); await Promise.all([refreshAnnouncements(), refreshAudit()]);
+});
 on('copy-link', 'click', () => copy($('pair-link').value));
 on('copy-ssh', 'click', () => copy($('ssh-command').textContent));
 on('audit-refresh', 'click', () => refreshAudit().catch(e => notice(e.message, true)));
@@ -258,6 +304,6 @@ on('ssh-dialog', 'close', () => show('ssh-feedback', false));
 on('ssh-form', 'input', () => { show('ssh-result', false); show('ssh-feedback', false); });
 setInterval(async () => {
   if (refreshBusy || document.hidden) return; refreshBusy = true;
-  try { if (config.mode === 'node') await refreshNode(); else if (me) { if (adminPage) await refreshAdminNodes(); else await refreshNodes(); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else notice(e.message, true); } finally { refreshBusy = false; }
+  try { if (config.mode === 'node') await refreshNode(); else if (me) { await Promise.all([adminPage ? refreshAdminNodes() : refreshNodes(), refreshAnnouncements()]); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else notice(e.message, true); } finally { refreshBusy = false; }
 }, 5000);
 boot().catch(e => { show('loading', false); notice(e.message, true); });

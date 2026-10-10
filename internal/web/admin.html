@@ -20,6 +20,7 @@
         <div class="admin-tabs" role="tablist" aria-label="管理功能">
           <button id="tab-servers" role="tab" type="button" aria-selected="true" aria-controls="panel-servers" data-tab="servers">服务器</button>
           <button id="tab-accounts" role="tab" type="button" aria-selected="false" aria-controls="panel-accounts" data-tab="accounts" tabindex="-1">账号</button>
+          <button id="tab-announcements" role="tab" type="button" aria-selected="false" aria-controls="panel-announcements" data-tab="announcements" tabindex="-1">公告</button>
           <button id="tab-activity" role="tab" type="button" aria-selected="false" aria-controls="panel-activity" data-tab="activity" tabindex="-1">操作记录</button>
         </div>
         <section id="panel-servers" role="tabpanel" aria-labelledby="tab-servers">
@@ -32,6 +33,12 @@
           <div class="workspace-head"><h2>账号管理</h2><div class="actions"><label class="check"><input id="allow-register" type="checkbox">允许自助注册</label><button id="user-toggle" type="button" aria-expanded="false" aria-controls="user-section">创建账号</button></div></div>
           <section id="user-section" class="workspace-section inline-form" hidden><form id="user-form" class="row"><label>用户名<input name="username" required maxlength="64"></label><label>初始密码<input name="password" type="password" required minlength="10" maxlength="72" autocomplete="new-password"></label><label class="check"><input name="admin" type="checkbox">管理员</label><button>保存账号</button></form></section>
           <div class="table-wrap"><table><thead><tr><th>用户名</th><th>角色</th><th>操作</th></tr></thead><tbody id="users"></tbody></table></div>
+        </section>
+        <section id="panel-announcements" role="tabpanel" aria-labelledby="tab-announcements" hidden>
+          <div class="workspace-head"><div><h2>发布公告</h2><p class="muted">发布后显示在所有已登录用户的首页顶部。</p></div></div>
+          <div class="workspace-body"><form id="announcement-form"><label>标题<input name="title" placeholder="例如 服务器维护通知" required maxlength="100"></label><label>内容<textarea name="content" placeholder="填写需要告知用户的内容，支持换行。" rows="5" required maxlength="2000"></textarea></label><div class="actions"><button type="submit">发布公告</button><span class="muted">以纯文本展示，最多 2000 字。</span></div></form></div>
+          <div class="workspace-head announcement-list-head"><h2>已发布公告</h2><span id="announcement-count" class="muted"></span></div>
+          <div id="admin-announcements"></div>
         </section>
         <section id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" hidden><div class="workspace-head"><h2>最近操作</h2><button id="audit-refresh" type="button" class="secondary">刷新</button></div><div id="audit" class="audit workspace-body"></div></section>
       </section>

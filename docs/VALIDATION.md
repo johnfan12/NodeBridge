@@ -88,3 +88,15 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 - v0.2.0 记录描述历史版本，不代表 v0.3.0 支持通用 TCP 转发。
 
 - 两套 hub/node 的浏览器并行验收通过：独立登录 Cookie、NodeBridge 移除 TCP 页面与 API、原 SSH 转发继续工作，PortBridge 暂停不影响 SSH；两个架构安装包与校验和通过。
+
+## 首页公告栏（v0.3.1）
+
+日期：2026-10-10。使用临时 hub/node 与独立管理员、普通用户浏览器会话验证，未改动已安装服务。
+
+- `make check` 通过，包含 Go vet、竞态检测、JS 与 Bash 语法检查。公告测试覆盖未登录 401、普通用户写入 403、内容边界、发布顺序、撤下、审计和并发容量限制。
+- 从没有公告字段的数据库升级，新增公告后重开数据库，公告与审计持久化；原账号、节点端口与旧 TCP 迁移元数据保留。
+- Playwright 实际发布/撤下公告，普通用户首页自动同步；最新公告位于服务器列表上方，历史折叠，全部撤下后隐藏公告栏。
+- HTML/脚本内容按字面文本展示，正文换行保留。100 字标题与 2000 字连续正文在 320/390 px 宽度无横向溢出。
+- 自动刷新保留历史展开状态、键盘焦点和管理员正在编辑的草稿。普通用户进入管理页自动返回首页；节点维护页不请求公告 API。
+- 公告发布与撤下期间，已建立的模拟 SSH 双向转发连接持续可用。实际重启临时 hub 后，原登录会话与已发布公告保留。
+- Linux amd64/arm64 Release 构建通过。截图保存在本机忽略的 `dist/announcements-home.png`、`announcements-admin.png`、`announcements-mobile.png`；生产没有新增 npm/Playwright 依赖。
