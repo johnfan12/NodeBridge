@@ -45,7 +45,6 @@ type attempt struct {
 }
 
 type Hub struct {
-	proxies     map[string]*liveProxy
 	Config      Config
 	Store       *store.Store
 	Fingerprint string
@@ -72,7 +71,7 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 		return nil, err
 	}
 	fp := hashBytes(cert.Certificate[0])
-	h := &Hub{proxies: map[string]*liveProxy{}, Config: c, Store: s, Fingerprint: fp, live: map[string]*liveNode{}, attempts: map[string]attempt{}, ctx: ctx, dir: dir, stopMonitor: make(chan struct{}), monitorDone: make(chan struct{})}
+	h := &Hub{Config: c, Store: s, Fingerprint: fp, live: map[string]*liveNode{}, attempts: map[string]attempt{}, ctx: ctx, dir: dir, stopMonitor: make(chan struct{}), monitorDone: make(chan struct{})}
 	err = s.Update(func(state *store.State) error {
 		if len(state.Users) > 0 {
 			return nil
@@ -94,12 +93,8 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 		return nil, err
 	}
 	var nodes []store.Node
-	var proxies []store.Proxy
 	if err = s.View(func(st store.State) error {
 		h.paused = st.ForwardingPaused
-		for _, p := range st.Proxies {
-			proxies = append(proxies, p)
-		}
 		for _, n := range st.Nodes {
 			nodes = append(nodes, n)
 		}
@@ -122,9 +117,6 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 			go h.acceptSSH(n.ID, ln)
 		}
 	}
-	for _, p := range proxies {
-		h.restoreProxy(p)
-	}
 	go h.monitor()
 	return h, nil
 }
@@ -144,9 +136,6 @@ func (h *Hub) Close() error {
 		if l.session != nil {
 			l.session.Close()
 		}
-	}
-	for _, p := range h.proxies {
-		p.close()
 	}
 	h.mu.Unlock()
 	<-h.monitorDone
@@ -224,10 +213,6 @@ func (h *Hub) Handler() http.Handler {
 	mux.Handle("POST /api/logout", h.auth(false, h.logout))
 	mux.Handle("PUT /api/password", h.auth(false, h.password))
 	mux.Handle("GET /api/nodes", h.auth(false, h.nodes))
-	mux.Handle("GET /api/proxies", h.auth(true, h.listProxies))
-	mux.Handle("POST /api/proxies", h.auth(true, h.createProxy))
-	mux.Handle("PUT /api/proxies/{id}/forwarding", h.auth(true, h.pauseProxy))
-	mux.Handle("DELETE /api/proxies/{id}", h.auth(true, h.deleteProxy))
 	mux.Handle("GET /api/forwarding", h.auth(false, h.forwardingStatus))
 	mux.Handle("PUT /api/forwarding", h.auth(true, h.setForwarding))
 	mux.Handle("PUT /api/nodes/{id}/forwarding", h.auth(true, h.setForwarding))
@@ -416,9 +401,6 @@ func (h *Hub) enroll(w http.ResponseWriter, r *http.Request) {
 			return errors.New("配对链接已使用或已过期，请在控制台重新生成")
 		}
 		used := map[int]bool{}
-		for _, p := range s.Proxies {
-			used[p.Port] = true
-		}
 		for _, node := range s.Nodes {
 			used[node.Port] = true
 		}
@@ -466,11 +448,6 @@ func (h *Hub) deleteNode(w http.ResponseWriter, r *http.Request, u store.User) {
 			return errors.New("节点不存在")
 		}
 		delete(s.Nodes, id)
-		for proxyID, p := range s.Proxies {
-			if p.NodeID == id {
-				delete(s.Proxies, proxyID)
-			}
-		}
 		for key, d := range s.Daily {
 			if d.NodeID == id {
 				delete(s.Daily, key)
@@ -489,12 +466,6 @@ func (h *Hub) deleteNode(w http.ResponseWriter, r *http.Request, u store.User) {
 			}
 		}
 		delete(h.live, id)
-		for proxyID, p := range h.proxies {
-			if p.saved.NodeID == id {
-				p.close()
-				delete(h.proxies, proxyID)
-			}
-		}
 	}
 	h.mu.Unlock()
 	if err != nil {

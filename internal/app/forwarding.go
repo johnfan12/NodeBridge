@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"nodebridge/internal/store"
-	"nodebridge/internal/transport"
 )
 
 func pausedRequest(w http.ResponseWriter, r *http.Request) (bool, bool) {
@@ -103,9 +103,21 @@ func (n *Node) setForwarding(w http.ResponseWriter, r *http.Request) {
 	}
 	n.config = c
 	if paused {
-		n.closeStreams(transport.SSH, 0)
+		for stream, conn := range n.streams {
+			delete(n.streams, stream)
+			stream.SetDeadline(time.Now())
+			if conn != nil {
+				conn.Close()
+			}
+			// Sending the stream FIN may wait on network I/O. Keep the local
+			// maintenance endpoint responsive even if the hub is unreachable.
+			go stream.Close()
+		}
 	}
 	n.mu.Unlock()
-	n.notifyStatus()
+	select {
+	case n.reportWake <- struct{}{}:
+	default:
+	}
 	respond(w, 200, map[string]bool{"paused": paused})
 }

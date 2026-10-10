@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -25,12 +23,6 @@ import (
 	"nodebridge/internal/web"
 )
 
-type nodeStream struct {
-	conn net.Conn
-	port int
-	kind byte
-}
-
 type Node struct {
 	mu         sync.Mutex
 	config     Config
@@ -41,11 +33,11 @@ type Node struct {
 	ctx        context.Context
 	wake       chan struct{}
 	reportWake chan struct{}
-	streams    map[*yamux.Stream]nodeStream
+	streams    map[*yamux.Stream]net.Conn
 }
 
 func NewNode(ctx context.Context, dir string, c Config) *Node {
-	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), reportWake: make(chan struct{}, 1), streams: map[*yamux.Stream]nodeStream{}, port: c.PublicPort}
+	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), reportWake: make(chan struct{}, 1), streams: map[*yamux.Stream]net.Conn{}, port: c.PublicPort}
 }
 
 func InitNode(dir, listen string, sshPort int) (Config, error) {
@@ -129,7 +121,7 @@ func (n *Node) Handler() http.Handler {
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		respond(w, 200, map[string]any{"paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused, "tcp_paused": n.config.TCPForwardingPaused, "tcp_ports": n.config.AllowedTCPPorts})
+		respond(w, 200, map[string]any{"paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused})
 	})
 	mux.HandleFunc("POST /api/pair", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -145,9 +137,6 @@ func (n *Node) Handler() http.Handler {
 		respond(w, 200, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("PUT /api/forwarding", n.setForwarding)
-	mux.HandleFunc("POST /api/tcp-ports", n.allowTCPPort)
-	mux.HandleFunc("DELETE /api/tcp-ports/{port}", n.removeTCPPort)
-	mux.HandleFunc("PUT /api/tcp-forwarding", n.setTCPForwarding)
 	mux.Handle("/", web.Handler())
 	// Protect the unauthenticated loopback maintenance UI against DNS rebinding.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -265,12 +254,7 @@ func (n *Node) report(ctx context.Context, c Config, session *yamux.Session) {
 		s := telemetry.Collect(ctx, c.SSHPort)
 		n.mu.Lock()
 		s.ForwardingPaused = n.config.ForwardingPaused
-		ports := append([]int{}, n.config.AllowedTCPPorts...)
-		s.TCPPaused = n.config.TCPForwardingPaused
-		s.TCPEnabled = true
-		s.SSHPort = n.config.SSHPort
 		n.mu.Unlock()
-		s.TCPPorts = telemetry.ProbePorts(ctx, ports)
 		stream, err := session.OpenStream()
 		if err != nil {
 			return
@@ -295,45 +279,35 @@ func (n *Node) serveStream(c Config, stream *yamux.Stream) {
 	defer stream.Close()
 	stream.SetDeadline(time.Now().Add(10 * time.Second))
 	var kind [1]byte
-	if _, err := io.ReadFull(stream, kind[:]); err != nil || (kind[0] != transport.SSH && kind[0] != transport.TCP) {
+	if _, err := io.ReadFull(stream, kind[:]); err != nil || kind[0] != transport.SSH {
 		return
 	}
-	port := c.SSHPort
-	if kind[0] == transport.TCP {
-		var encoded [2]byte
-		if _, err := io.ReadFull(stream, encoded[:]); err != nil {
-			return
-		}
-		port = int(binary.BigEndian.Uint16(encoded[:]))
-	}
 	n.mu.Lock()
-	allowed := (kind[0] == transport.SSH && !n.config.ForwardingPaused) ||
-		(kind[0] == transport.TCP && !n.config.TCPForwardingPaused && slices.Contains(n.config.AllowedTCPPorts, port))
-	if !allowed {
+	if n.config.ForwardingPaused {
 		n.mu.Unlock()
 		stream.Write([]byte{1})
 		return
 	}
-	n.streams[stream] = nodeStream{port: port, kind: kind[0]}
+	n.streams[stream] = nil
 	n.mu.Unlock()
 	defer func() {
 		n.mu.Lock()
 		delete(n.streams, stream)
 		n.mu.Unlock()
 	}()
-	// All targets are loopback; TCP services require explicit local authorization.
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 5*time.Second)
+	// Hub cannot choose arbitrary destinations: only the configured loopback SSH port.
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(c.SSHPort)), 5*time.Second)
 	if err != nil {
 		stream.Write([]byte{1})
 		return
 	}
 	defer conn.Close()
 	n.mu.Lock()
-	if _, active := n.streams[stream]; !active {
+	if _, active := n.streams[stream]; n.config.ForwardingPaused || !active {
 		n.mu.Unlock()
 		return
 	}
-	n.streams[stream] = nodeStream{conn: conn, port: port, kind: kind[0]}
+	n.streams[stream] = conn
 	n.mu.Unlock()
 	if _, err = stream.Write([]byte{0}); err != nil {
 		return

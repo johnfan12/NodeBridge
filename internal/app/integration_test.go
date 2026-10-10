@@ -209,6 +209,23 @@ func TestPairForwardReconnectAndRevoke(t *testing.T) {
 		return l != nil && l.session != nil && !l.session.IsClosed() && !l.seen.IsZero() && l.status.SSHReady
 	}
 	waitFor(t, ready)
+	// NodeBridge accepts only the SSH stream type, including after TCP was split out.
+	f.hub.mu.Lock()
+	session := f.hub.live[paired.NodeID].session
+	f.hub.mu.Unlock()
+	forbidden, err := session.OpenStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	forbidden.SetDeadline(time.Now().Add(time.Second))
+	if _, err := forbidden.Write([]byte{3, 0, 22}); err != nil {
+		t.Fatal(err)
+	}
+	var forbiddenACK [1]byte
+	if _, err := io.ReadFull(forbidden, forbiddenACK[:]); err == nil {
+		t.Fatal("TCP stream type accepted by SSH-only node")
+	}
+	forbidden.Close()
 	if err = f.hub.sampleHealth(time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}

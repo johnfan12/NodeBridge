@@ -67,7 +67,7 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 - 验证自动刷新后运行详情展开状态与键盘焦点保留；320 px 和 390 px 的首页、管理页、账号页、本机维护页及连接弹窗无页面横向溢出。
 - `make check` 和 Linux amd64/arm64 Release 构建通过。截图保存在本地 dist/ui-hub.png、ui-admin.png、ui-connect.png、ui-mobile.png、ui-admin-mobile.png、ui-node.png。
 
-## SSH 与 Overleaf/TCP 代理（v0.2.0）
+## 历史：SSH 与 Overleaf/TCP 代理（v0.2.0）
 
 - `make check` 通过，包括 Go vet、竞态检测、JavaScript 与 Bash 语法检查。无需新增生产依赖。
 - 使用真实 HTTPS hub、主动连接的 node 和模拟 HTTP/WebSocket 后端，验证 1,020,000 字节上传与回传，HTTP 路径/查询/Host/Cookie 保留，WebSocket 双向消息通过公网代理端口正常收发。
@@ -79,3 +79,12 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 - Playwright 验证 UI 配对、本机授权、创建代理、打开模拟服务页面、两处 TCP 暂停/恢复、撤销授权、删除代理、普通用户权限与管理页跳转。
 - 代理列表自动刷新保留按钮焦点；320/390 px 下代理页（含创建表单）和节点授权页无横向溢出，手机字段高度正常。截图为本机忽略的 `dist/ui-proxies.png`、`ui-proxy-mobile.png` 和 `ui-node-tcp.png`。
 - Linux amd64/arm64 发布包通过本地构建。实际 Overleaf 实例、公网防火墙和真实多人编辑仍需在目标部署验证；本版未集成域名、Nginx 或自动证书。
+
+## SSH 职责收口（v0.3.0）
+
+- 移除额外 TCP 的 WebUI、管理接口与隧道类型，只保留原 SSH 能力。
+- 集成测试验证 SSH 传输、暂停、重连、端口与身份保存；直接请求类型 3 被 SSH-only 节点拒绝。
+- 旧 hub 代理记录重开后保留但不监听公网端口；旧 node 授权字段保留，用户可以按迁移文档参考。
+- v0.2.0 记录描述历史版本，不代表 v0.3.0 支持通用 TCP 转发。
+
+- 两套 hub/node 的浏览器并行验收通过：独立登录 Cookie、NodeBridge 移除 TCP 页面与 API、原 SSH 转发继续工作，PortBridge 暂停不影响 SSH；两个架构安装包与校验和通过。
