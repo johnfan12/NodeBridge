@@ -248,7 +248,7 @@ VPS 必须放行对外的 HTTPS 端口（直连默认 TCP `9443`，Nginx 默认 
 
 ```bash
 make check
-make release VERSION=v0.4.0
+make release VERSION=v0.4.1
 ```
 
 检查包括 Go vet、竞态检测下的集成测试、JS 语法和脚本语法检查。集成测试启动真实 HTTPS hub、节点反向连接与本地 TCP 服务，验证大数据转发、半关闭、重连、配对原子性、端口冲突、凭证撤销、权限与证书校验。

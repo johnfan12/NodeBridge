@@ -111,3 +111,4 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 - 公网检查可发现将 HTTP 发往 Hub TLS 端口的错误代理，以及返回非 NodeBridge 内容的 HTTP 200。Nginx 生成器拒绝非回环后端和不安全主机名。
 - 地址更新测试验证旧配置备份权限 0600、配置原子保存、保留 Hub 证书/暂停状态与节点凭证/端口，非法改动不写入配置。
 - `make check`（含真实 Nginx、竞态检测、Go vet 与脚本语法）及 Linux amd64/arm64 Release 构建通过。实际 CLI 完成临时配置的地址迁移，公网 `ssh.evoigroup.cloud` 的 HTTPS 与 API 只读检查通过；未修改该 VPS 的服务或 Nginx 配置。
+- v0.4.1 修正续期测试的证书写法：使用与实际证书轮换一致的原子替换，避免新版 Nginx 在同一秒内、同一 inode 上继承旧 SSL 对象。CI 失败会在检查注释中保留诊断输出。

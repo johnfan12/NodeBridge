@@ -66,7 +66,14 @@ func TestNginxPairingForwardingAndCertificateRenewal(t *testing.T) {
 			t.Fatal(err)
 		}
 		for name, data := range map[string][]byte{"proxy.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), "proxy.key": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: priv})} {
-			if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
+			// Match ACME rotation: replace the file, including its inode. Newer
+			// Nginx inherits cached SSL objects when inode and mtime are unchanged;
+			// two in-place test writes within the same second may reuse old TLS.
+			pending := filepath.Join(dir, name+".new")
+			if err := os.WriteFile(pending, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(pending, filepath.Join(dir, name)); err != nil {
 				t.Fatal(err)
 			}
 		}
