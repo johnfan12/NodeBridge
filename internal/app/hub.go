@@ -373,7 +373,7 @@ func (h *Hub) invite(w http.ResponseWriter, r *http.Request, u store.User) {
 		fail(w, 400, err.Error())
 		return
 	}
-	respond(w, 201, map[string]any{"link": EncodePair(Pairing{h.Config.PublicURL, token, h.Fingerprint}), "expires": expires})
+	respond(w, 201, map[string]any{"link": EncodePair(Pairing{URL: h.Config.PublicURL, Token: token, Fingerprint: h.Fingerprint, TLSMode: TLSAuto}), "expires": expires})
 }
 
 func (h *Hub) enroll(w http.ResponseWriter, r *http.Request) {

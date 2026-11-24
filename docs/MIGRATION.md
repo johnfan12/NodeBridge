@@ -44,6 +44,14 @@
 
 本次代码开发不改动旧仓库、不停用旧服务、不自动修改云防火墙、不把旧用户数据库当作已导入。
 
+## v0.4.0 域名反向代理升级
+
+新增链接明确携带 `tls_mode: auto`，节点可验证域名证书或原 Hub 指纹，解决 Nginx 终止 TLS 后证书不同的问题；CA 域名证书续期后可以重连。旧链接和旧节点配置缺省仍为严格指纹校验，不自动放宽。
+
+使用 Nginx 的新部署需同时更新 hub 与 node 并生成新链接。已经临时配对到 `https://域名:9443` 的部署，可以分别使用安装脚本的 `hub --public-url https://域名 --reconfigure` 与 `node --hub-url https://域名 --tls-mode auto --reconfigure`，保留原节点身份、凭证、端口与暂停状态；地址实际变化时生成私有配置备份。更新重启会断开 SSH 会话。
+
+Hub 9443 继续使用 HTTPS，Nginx 必须使用 HTTPS 后端并转发 WebSocket Upgrade。`nodebridge nginx` 生成本机配置，`nodebridge doctor` 检查公网 HTTPS/API，安装也会显示检查结果。完整命令见 [Nginx 文档](NGINX.md)。
+
 ## v0.3.1 公告栏升级
 
 从 v0.3.0 升级只需更新 hub，node 可以继续使用原版本。已有数据库自动兼容新增公告字段，无需迁移命令；原账号、节点、凭证、端口和暂停状态保留。公告尚未发布时首页不显示公告栏，管理员可在 `/admin#announcements` 发布第一条公告。

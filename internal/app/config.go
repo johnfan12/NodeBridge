@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math/big"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -35,6 +34,7 @@ type Config struct {
 	PortEnd          int    `json:"port_end,omitempty"`
 	HubURL           string `json:"hub_url,omitempty"`
 	Fingerprint      string `json:"fingerprint,omitempty"`
+	TLSMode          string `json:"tls_mode,omitempty"`
 	NodeID           string `json:"node_id,omitempty"`
 	Credential       string `json:"credential,omitempty"`
 	SSHPort          int    `json:"ssh_port,omitempty"`
@@ -47,6 +47,7 @@ type Pairing struct {
 	URL         string `json:"url"`
 	Token       string `json:"token"`
 	Fingerprint string `json:"fingerprint"`
+	TLSMode     string `json:"tls_mode,omitempty"`
 }
 
 func randomToken() string {
@@ -121,6 +122,9 @@ func (c Config) Validate() error {
 			return errors.New("缺少 TLS 证书配置")
 		}
 	case "node":
+		if !validTLSMode(c.TLSMode) {
+			return errors.New("tls_mode 必须为 auto、pinned 或 system")
+		}
 		ip := net.ParseIP(host)
 		if ip == nil || !ip.IsLoopback() {
 			return errors.New("节点维护页面只能监听回环地址")
@@ -171,30 +175,15 @@ func DecodePair(raw string) (Pairing, error) {
 	if _, err = validateURL(p.URL); err != nil {
 		return p, err
 	}
+	if !validTLSMode(p.TLSMode) {
+		return p, errors.New("不支持的配对 TLS 校验方式，请更新节点程序")
+	}
 	fp, err := hex.DecodeString(p.Fingerprint)
 	if err != nil || len(fp) != sha256.Size || len(p.Token) != 43 {
 		return p, errors.New("配对凭证或证书指纹无效")
 	}
+	p.URL = strings.TrimRight(p.URL, "/")
 	return p, nil
-}
-
-// Trust exactly the certificate included by the hub in the pairing link.
-// This accepts a self-signed certificate without trusting any other certificate.
-func pinnedClient(fingerprint string) *http.Client {
-	return &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: true, // Verification is replaced with an exact fingerprint check below.
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 || hashBytes(cs.PeerCertificates[0].Raw) != fingerprint {
-				return errors.New("控制台 TLS 证书指纹不匹配")
-			}
-			c := cs.PeerCertificates[0]
-			if time.Now().Before(c.NotBefore) || time.Now().After(c.NotAfter) {
-				return errors.New("控制台 TLS 证书已过期或尚未生效")
-			}
-			return nil
-		},
-	}}}
 }
 
 func hashBytes(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }

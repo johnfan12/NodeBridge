@@ -30,6 +30,8 @@ curl http://127.0.0.1:9899/api/node
 
 ## 节点连接不上
 
+使用域名 + Nginx 时先运行 `sudo nodebridge doctor --data-dir /var/lib/nodebridge/hub`。9443 是 HTTPS，Nginx 后端不能填写 HTTP；还需正确的 WebSocket Upgrade 头。配对指纹错误与域名证书续期的处理见 [Nginx 运维说明](NGINX.md)，包括将临时 :9443 地址切回域名 443、保留配对和 SSH 端口的方法。
+
 查看节点维护页面或 `journalctl -u nodebridge-node`。确认 VPS 的控制台端口可从节点访问、系统时间正确、TLS 文件未被替换。网络断开时无需重新配置，节点会自动重试。
 
 “节点凭证已撤销”说明控制台删除过该节点，或恢复了不同时间的 hub 数据备份；需要重新配对。
@@ -71,7 +73,7 @@ sudoedit /var/lib/nodebridge/hub/config.json
 sudo systemctl start nodebridge-hub
 ```
 
-hub 已分配端口在数据库中保存。缩小端口池不会改变已有节点端口。修改 hub 公网地址或 TLS 证书需要重新配对节点；证书采用指纹锁定，不自动接受地址变更或新证书。
+hub 已分配端口在数据库中保存。缩小端口池不会改变已有节点端口。v0.4.0 可通过 `--reconfigure --init-only` 更新 Hub 公网地址及已配对节点的连接地址、TLS 模式，保留凭证与原 SSH 端口；完整步骤见 [Nginx 文档](NGINX.md)。旧配置的严格指纹校验保持不变；auto/system 模式允许经过正常 CA 校验的域名证书续期。
 
 ## 重新配对节点
 
@@ -96,7 +98,7 @@ sudo tar -czf nodebridge-hub-backup.tar.gz -C /var/lib/nodebridge hub
 sudo systemctl start nodebridge-hub
 ```
 
-恢复后确保数据归属 `nodebridge:nodebridge`、目录 `0700`、配置/私钥/数据库 `0600`。丢失 hub 证书会导致全部节点指纹验证失败；数据库和证书需一起恢复。
+恢复后确保数据归属 `nodebridge:nodebridge`、目录 `0700`、配置/私钥/数据库 `0600`。丢失 hub 证书会导致依赖该指纹的节点验证失败；数据库和证书需一起恢复。经 Nginx 使用 CA 校验的节点还依赖有效的域名证书与完整信任链。
 
 hub 重启时若原端口被其他服务占用，会保留端口记录并显示错误。停止占用该端口的服务，再重启 hub。不会偷偷把现有节点换到另一个端口。
 

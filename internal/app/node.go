@@ -72,7 +72,12 @@ func (n *Node) Pair(link string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := pinnedClient(p.Fingerprint).Do(req)
+	client, err := clientForHub(p.URL, p.Fingerprint, p.TLSMode)
+	if err != nil {
+		return err
+	}
+	defer client.CloseIdleConnections()
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("连接控制台失败: %w", err)
 	}
@@ -96,6 +101,7 @@ func (n *Node) Pair(link string) error {
 	c := n.config
 	c.HubURL = p.URL
 	c.Fingerprint = p.Fingerprint
+	c.TLSMode = p.TLSMode
 	c.NodeID = result.NodeID
 	c.Credential = result.Credential
 	c.PublicPort = result.Port
@@ -203,7 +209,11 @@ func (n *Node) Run() {
 }
 
 func (n *Node) connect(c Config) error {
-	client := pinnedClient(c.Fingerprint)
+	client, err := clientForHub(c.HubURL, c.Fingerprint, c.TLSMode)
+	if err != nil {
+		return err
+	}
+	defer client.CloseIdleConnections()
 	client.Timeout = 0
 	headers := http.Header{}
 	headers.Set("X-Node-ID", c.NodeID)

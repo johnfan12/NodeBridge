@@ -47,6 +47,9 @@ func run() error {
 	if mode == "pair" {
 		return pair()
 	}
+	if mode == "nginx" || mode == "doctor" {
+		return deploymentCommand(mode, os.Args[2:])
+	}
 	if mode != "hub" && mode != "node" {
 		usage()
 		return errors.New("请选择 hub 或 node 模式")
@@ -55,6 +58,9 @@ func run() error {
 	data := fs.String("data-dir", "./data/"+mode, "持久化目录")
 	listen := fs.String("listen", "", "监听地址；hub 默认 :9443，node 默认 127.0.0.1:9899")
 	public := fs.String("public-url", "", "首次启动 hub 必填，例如 https://203.0.113.10:9443")
+	hubURL := fs.String("hub-url", "", "已配对 node 的新控制台地址，需配合 --reconfigure --init-only")
+	tlsMode := fs.String("tls-mode", "", "已配对 node 的 TLS 校验：auto / pinned / system，需配合 --reconfigure --init-only")
+	reconfigure := fs.Bool("reconfigure", false, "显式更新连接地址，备份旧配置；需配合 --init-only")
 	start := fs.Int("port-start", 30000, "hub 自动分配端口范围起点")
 	end := fs.Int("port-end", 39999, "hub 自动分配端口范围终点")
 	ssh := fs.Int("ssh-port", 22, "节点本地 SSH 端口")
@@ -66,12 +72,18 @@ func run() error {
 	if fs.NArg() != 0 {
 		return errors.New("存在无法识别的参数")
 	}
+	if (*reconfigure && !*initOnly) || ((!*reconfigure) && (*hubURL != "" || *tlsMode != "")) {
+		return errors.New("修改连接地址需使用 --reconfigure --init-only；服务重启后生效")
+	}
 	dir, err := filepath.Abs(*data)
 	if err != nil {
 		return err
 	}
 	c, err := app.LoadConfig(dir)
 	if errors.Is(err, os.ErrNotExist) {
+		if *reconfigure {
+			return errors.New("未找到已有配置，请先安装并配对，再修改连接地址")
+		}
 		address := *listen
 		if mode == "hub" {
 			if address == "" {
@@ -92,7 +104,7 @@ func run() error {
 		return errors.New("数据目录已经用于另一种模式，请为 hub/node 使用不同目录")
 	}
 	// Persisted configuration is authoritative. Never silently ignore supplied changes.
-	if (*listen != "" && *listen != c.Listen) || (*public != "" && *public != c.PublicURL) {
+	if (*listen != "" && *listen != c.Listen) || (!*reconfigure && *public != "" && *public != c.PublicURL) {
 		return errors.New("参数与已有配置不同，请先停止服务并修改 config.json")
 	}
 	var mismatch bool
@@ -108,6 +120,12 @@ func run() error {
 	})
 	if mismatch {
 		return errors.New("参数与已有配置不同，请先停止服务并修改 config.json")
+	}
+	if *reconfigure {
+		c, err = reconfigureEndpoint(dir, c, *public, *hubURL, *tlsMode)
+		if err != nil {
+			return err
+		}
 	}
 	if *initOnly && mode == "hub" {
 		if _, err := os.Stat(filepath.Join(dir, "hub.db")); err == nil {
@@ -179,6 +197,8 @@ func usage() {
 nodebridge hub --public-url https://VPS_IP:9443
 nodebridge node
 nodebridge pair
+nodebridge nginx --data-dir /var/lib/nodebridge/hub
+nodebridge doctor --data-dir /var/lib/nodebridge/hub
 nodebridge version
 
 hub: HTTPS 控制台、自动配对、SSH 公网端口分配

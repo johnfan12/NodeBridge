@@ -15,6 +15,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Install Nginx for reverse proxy integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends nginx
       - run: make check
       - run: make release VERSION="$VERSION"
         env:

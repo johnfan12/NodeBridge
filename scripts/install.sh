@@ -6,6 +6,7 @@ usage() {
 NodeBridge Linux/systemd 安装
   sudo ./install.sh hub --public-url https://VPS_IP:9443
   sudo ./install.sh node
+  sudo ./install.sh hub --public-url https://ssh.example.com --reconfigure
   sudo bash scripts/install.sh hub --binary ./bin/nodebridge --public-url https://VPS_IP:9443
 
 可选：--binary /path/to/nodebridge，其余参数传递给 nodebridge。
@@ -109,8 +110,15 @@ if [[ $mode == hub ]]; then
   else
     echo '管理员账号已初始化，请使用已有密码。'
   fi
-  echo '浏览器访问配置的 HTTPS 地址。默认使用自签证书，首次访问需核对证书指纹。'
-  echo "VPS 防火墙/云安全组需放行控制台端口（默认 9443）和配置的 SSH 端口池（默认 30000–39999）。"
+  echo '直接访问 Hub 使用自签 HTTPS；域名反向代理使用 Nginx 的有效域名证书。'
+  echo '注意：Hub 的 9443 是 HTTPS，Nginx 后端必须使用 https://，并传递 WebSocket Upgrade 头。'
+  echo '生成 Nginx location 配置（加入已有 HTTPS server，替换旧 location /）：'
+  echo "  sudo nodebridge nginx --data-dir $dir"
+  echo "VPS 防火墙/云安全组需放行对外的 HTTPS 端口（直连默认 9443；Nginx 通常 443）和 SSH 端口池。"
+  if ! "$target" doctor --data-dir "$dir"; then
+    echo '服务已启动，但公网地址检查未通过；请修正 Nginx/DNS/域名证书后重试：' >&2
+    echo "  sudo nodebridge doctor --data-dir $dir" >&2
+  fi
 else
   echo '执行 nodebridge pair，粘贴 VPS 控制台生成的配对链接即可。'
   echo '本地维护页面：http://127.0.0.1:9899'

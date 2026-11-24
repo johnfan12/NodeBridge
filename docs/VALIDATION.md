@@ -100,3 +100,14 @@ make check build release GO=/tmp/nodebridge-go/go/bin/go VERSION=v0.1.0
 - 自动刷新保留历史展开状态、键盘焦点和管理员正在编辑的草稿。普通用户进入管理页自动返回首页；节点维护页不请求公告 API。
 - 公告发布与撤下期间，已建立的模拟 SSH 双向转发连接持续可用。实际重启临时 hub 后，原登录会话与已发布公告保留。
 - Linux amd64/arm64 Release 构建通过。截图保存在本机忽略的 `dist/announcements-home.png`、`announcements-admin.png`、`announcements-mobile.png`；生产没有新增 npm/Playwright 依赖。
+
+## 域名反向代理与 TLS（v0.4.0）
+
+日期：2026-11-24。使用临时 Nginx、HTTPS hub 和独立 node 进程，不修改已安装的服务或用户的 VPS 配置。
+
+- 新 TLS 用例覆盖：CA 证书与 Hub 指纹不同仍可验证；正常证书续期；精确指纹回退；旧配置保持严格 pin；system 模式；错误域名、不受信任和过期证书拒绝；拒绝 API 重定向，错误 TLS 不发送 HTTP 请求。
+- 实际 Nginx 反向代理测试使用生成的 HTTPS 后端配置。管理员请求的 Host/Origin 保留，独立 node 进程加载指定的测试系统根证书，使用新链接完成 `/api/enroll` 与 WebSocket/yamux 建连，SSH 双向数据完整回传。
+- 更换 Nginx 公开证书并 reload，验证新的证书实际生效；强制节点重连后仍可转发，节点 ID、凭证与原 SSH 端口保持不变。测试进入 CI，发布前安装 Nginx 并执行。
+- 公网检查可发现将 HTTP 发往 Hub TLS 端口的错误代理，以及返回非 NodeBridge 内容的 HTTP 200。Nginx 生成器拒绝非回环后端和不安全主机名。
+- 地址更新测试验证旧配置备份权限 0600、配置原子保存、保留 Hub 证书/暂停状态与节点凭证/端口，非法改动不写入配置。
+- `make check`（含真实 Nginx、竞态检测、Go vet 与脚本语法）及 Linux amd64/arm64 Release 构建通过。实际 CLI 完成临时配置的地址迁移，公网 `ssh.evoigroup.cloud` 的 HTTPS 与 API 只读检查通过；未修改该 VPS 的服务或 Nginx 配置。

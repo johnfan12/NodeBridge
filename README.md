@@ -44,7 +44,7 @@ VPS 控制台地址是 `https://你的VPS公网IP:9443`。首次启动自动生�
 cat data/hub/initial-admin.txt
 ```
 
-默认生成自签 HTTPS 证书，浏览器首次访问会提示证书未被信任。启动日志显示证书 SHA-256 指纹，可以与浏览器证书详情核对。节点配对和后续连接自动校验证书指纹。登录后可以修改密码；修改初始管理员密码后，初始密码文件会删除。
+默认生成自签 HTTPS 证书，直接访问时浏览器首次提示证书未被信任。启动日志显示证书 SHA-256 指纹，可以与浏览器证书详情核对。v0.4.0 新配对链接支持自动 TLS 校验：直连自签 Hub 校验配对指纹；域名经 Nginx 代理则可校验域名、有效期和系统信任链，支持域名证书续期。旧节点配置仍保持严格指纹校验。登录后可以修改密码；修改初始管理员密码后，初始密码文件会删除。
 
 登录 VPS 控制台，填写节点名称并点击“生成配对链接”。在节点打开 `http://127.0.0.1:9899`，粘贴链接；没有桌面的服务器直接执行：
 
@@ -59,7 +59,7 @@ cat data/hub/initial-admin.txt
 
 在 Linux/systemd 机器上直接安装最新 Release，不需要 Go、Python、npm 或 FRP。
 
-**VPS（有公网 IP）：** 把下面的 `你的VPS公网IP` 换成实际 IP 或域名。
+**VPS（直接访问）：** 把下面的 `你的VPS公网IP` 换成实际 IP；需要域名的 443 入口时见下方 Nginx 配置。
 
 ```bash
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://你的VPS公网IP:9443
@@ -73,7 +73,7 @@ curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/inst
 
 安装后，在 VPS 控制台生成配对链接；在内网服务器执行 `nodebridge pair`，粘贴链接即可。也可以打开节点本地 `http://127.0.0.1:9899` 维护页面完成配对。
 
-脚本自动识别 amd64/arm64、下载对应安装包、校验 SHA-256，并配置 systemd 服务。所有服务以专用普通用户 `nodebridge` 运行，VPS 安装完成会显示首次管理员账号。VPS 需放行默认 TCP `9443` 和配置的 SSH 端口池，详情见下文。
+脚本自动识别 amd64/arm64、下载对应安装包、校验 SHA-256，并配置 systemd 服务。所有服务以专用普通用户 `nodebridge` 运行，VPS 安装完成会显示首次管理员账号，并检查配置的公网 HTTPS/API 路由。防火墙需放行对外的 HTTPS 端口（直连默认 `9443`，Nginx 通常 `443`）和 SSH 端口池。
 
 [最新 Release 和下载文件](https://github.com/johnfan12/NodeBridge/releases/latest) · [安装脚本](https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh)
 
@@ -103,6 +103,44 @@ curl -fsSL https://github.com/johnfan12/NodeBridge/releases/download/v0.1.2/inst
 ```
 
 项目通过 GitHub Actions 发布：推送 `v*` 标签后运行检查、构建安装包，并发布独立安装脚本和校验和。
+
+## 域名 + Nginx（443 入口）
+
+已有域名解析、Nginx 和有效域名证书时，Hub 安装命令直接填写域名，不加 `:9443`：
+
+```bash
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://ssh.example.com
+```
+
+**Hub 的 9443 始终使用 HTTPS**，`--public-url` 表示用户与节点实际访问的外部地址。Nginx 后端必须是 `https://127.0.0.1:9443`，使用 `http://` 会出现 400/502。还必须转发 WebSocket Upgrade 头，否则页面正常但节点无法连接。
+
+生成与本机监听端口匹配的配置：
+
+```bash
+sudo nodebridge nginx --data-dir /var/lib/nodebridge/hub
+```
+
+将输出的 `location / { ... }` **替换**域名现有 HTTPS `server` 中的旧 `location /`，保留原来的 `server_name`、`ssl_certificate`、`ssl_certificate_key`。然后执行：
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+sudo nodebridge doctor --data-dir /var/lib/nodebridge/hub
+```
+
+hub 和 node 都升级至 v0.4.0 后，生成新配对链接并粘贴到未配对节点，即可通过域名的 443 端口完成配对与连接，无需额外开放公网 9443。Nginx 使用完整证书链；域名证书正常续期无需重新配对。
+
+**已经通过“域名:9443”临时配对的部署**，可使用以下命令更新地址并保留节点 ID、凭证、固定 SSH 端口和暂停状态；地址变更时自动备份原配置：
+
+```bash
+# VPS：将公告和配对使用的公网地址改回域名 443
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://ssh.example.com --reconfigure
+
+# 每台已配对节点：切换到域名 443，同时启用新版 TLS 校验
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- node --hub-url https://ssh.example.com --tls-mode auto --reconfigure
+```
+
+两条命令分别重启对应服务，现有 SSH 会话会断开。尚未配对的节点按普通 node 安装命令更新，然后粘贴新链接。完整配置、诊断与仅修改地址的方法见 [Nginx 运维说明](docs/NGINX.md)。
 
 ## 日常页面与管理页面
 
@@ -183,11 +221,11 @@ curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/unin
 | 接入节点 | 粘贴一次性配对链接 | VPS 地址、证书指纹、节点凭证、公网端口 |
 | 接入更多节点 | 新的配对链接 | 节点列表和不同的固定端口 |
 
-VPS 必须放行控制台端口（默认 TCP `9443`）和 SSH 公网端口池（默认 TCP `30000–39999`）。端口池可以缩小到实际所需范围，例如 `--port-start 30000 --port-end 30009`。程序可以自动选端口，云安全组和防火墙需要由有权限的运维人员开放。
+VPS 必须放行对外的 HTTPS 端口（直连默认 TCP `9443`，Nginx 默认 TCP `443`）和 SSH 公网端口池（默认 TCP `30000–39999`）。Nginx 部署的节点全部通过 443 连接后，不需要向公网开放 Hub 的 9443。端口池可以缩小到实际所需范围，例如 `--port-start 30000 --port-end 30009`。程序可以自动选端口，云安全组和防火墙需要由有权限的运维人员开放。
 
 节点无需公网 IP、入站端口或 API 端口映射，只需能主动访问 VPS 的控制台端口，并已有 SSH 服务。WebUI 不创建 Linux 账号；控制台账号和 Linux SSH 账号分别由控制台与节点系统管理。
 
-首次启动参数保存到 `config.json`，后续重启直接读配置。显式参数与现有配置不一致时会报错，避免修改参数却未生效。默认路径：
+首次启动参数保存到 `config.json`，后续重启直接读配置。显式参数与现有配置不一致时会报错，避免修改参数却未生效；连接地址可通过上面的 `--reconfigure` 显式更新，CLI 同时需要 `--init-only`（安装脚本自动添加）。默认路径：
 
 | 数据 | 手动运行 | systemd 安装 |
 | --- | --- | --- |
@@ -210,7 +248,7 @@ VPS 必须放行控制台端口（默认 TCP `9443`）和 SSH 公网端口池（
 
 ```bash
 make check
-make release VERSION=v0.3.1
+make release VERSION=v0.4.0
 ```
 
 检查包括 Go vet、竞态检测下的集成测试、JS 语法和脚本语法检查。集成测试启动真实 HTTPS hub、节点反向连接与本地 TCP 服务，验证大数据转发、半关闭、重连、配对原子性、端口冲突、凭证撤销、权限与证书校验。
