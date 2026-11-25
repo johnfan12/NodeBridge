@@ -53,7 +53,7 @@ sudo nodebridge doctor --data-dir /var/lib/nodebridge/hub
 
 ## 将临时的 :9443 入口切回域名 443
 
-先保留已修正的 HTTPS `proxy_pass` 与有效的 Nginx 域名证书。按 [README](../README.md#域名--nginx443-入口) 的两条安装命令更新 hub 与每台已配对 node，使用 `--reconfigure` 更新地址。更新会重启对应服务并断开 SSH 会话。无需移除节点、重新兑换邀请或更换原 SSH 端口。
+先保留已修正的 HTTPS `proxy_pass` 与有效的 Nginx 域名证书。按 [README](../README.md#命令升级与旧地址迁移) 的两条安装命令更新 hub 与每台已配对 node，使用 `--reconfigure` 更新地址。更新会重启对应服务并断开 SSH 会话。无需移除节点、重新兑换邀请或更换原 SSH 端口。
 
 已经安装 v0.4.0 后，仅修改连接地址也可以使用下面的命令。将示例域名替换为实际域名：
 

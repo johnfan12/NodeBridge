@@ -1,264 +1,229 @@
 # NodeBridge
 
-一个 Go 程序，两种运行模式，把 Servermanager 和 Clustermanager 的当前 SSH 管理功能收进一个仓库。
+**Best Approach to SSH Access Behind NAT.**
 
-- **hub**：部署在有公网 IP 的 VPS，提供 HTTPS 控制台、账号管理、配对和自动端口分配。
-- **node**：部署在内网服务器，主动连接 hub，转发本地 SSH，并上报节点/GPU 状态。
-- WebUI 编译进二进制；生产环境不需要 Python、Node.js、npm、FRP 或单独部署数据库。
-- WebUI 沿用原 Clustermanager 的 Azure 风格：中性灰背景、白色面板、Azure 蓝按钮、深色文字和清晰的输入框边界，支持桌面与手机布局。
-- **项目分工**：NodeBridge 只负责 SSH 连接；Overleaf 和其他 TCP 服务转发使用独立项目 [PortBridge](https://github.com/johnfan12/PortBridge)。
-- 当前重构基线是两个旧仓库的 `simple-tunnel-platform` 分支。Docker 实例、资源配额和卡时计费不属于此分支，功能清单见 [迁移说明](docs/MIGRATION.md)。
+通过一台 VPS，连接没有公网 IP 的服务器。安装后复制一次配对链接，即可获得固定的公网 SSH 端口，并在 Web 面板集中管理节点与版本。
 
-```mermaid
-flowchart LR
-    browser[浏览器] -->|HTTPS| hub[VPS · nodebridge hub]
-    node[内网服务器 · nodebridge node] -->|主动建立 TLS/WebSocket 连接| hub
-    ssh[SSH 客户端] -->|VPS 自动分配的端口| hub
-    hub -->|连接内的独立数据流| node
-    node -->|127.0.0.1:22| sshd[节点 SSH 服务]
-```
+以下命令适用于 Ubuntu / Debian、systemd、amd64 / arm64。将所有 `ssh.example.com` 替换为你的域名。已有部署直接看[升级](#升级)。
 
-## 从 v0.2.0 升级
+## 1. 确认域名解析
 
-从 v0.3.0 起，Overleaf/TCP 转发拆分到 PortBridge，NodeBridge 不再提供 TCP 面板、授权接口或 TCP 数据流。**升级 NodeBridge 会停止旧版额外 TCP 转发**；原有 SSH 节点、凭证、账号、端口和暂停状态保留。旧代理记录与本机端口授权保留在原数据中作为迁移参考，不再启用。
+开始前，域名的 **A 记录已指向 VPS 公网 IPv4**。只有 VPS 的 IPv6 同样可访问时才添加 AAAA 记录。域名应直接解析到 VPS，不开启 CDN 代理。
 
-已有 Overleaf 用户应先独立部署 PortBridge，在新控制台重新配对、授权端口并创建转发，确认访问正常后再升级 NodeBridge。两个项目的默认端口、服务、系统用户、配对链接和数据目录独立。详见 [迁移步骤](docs/MIGRATION.md#overleaftcp-迁移到-portbridge)。
+在 VPS 的云安全组和本机防火墙放行：
 
-## 从现有源码试运行
+| TCP 端口 | 用途 |
+| --- | --- |
+| 80 | 申请与续期域名证书 |
+| 443 | Web 面板、节点连接 |
+| 30000–39999 | 分配给节点的公网 SSH 端口 |
 
-开发构建需要 [Go 1.26 或更新版本](https://go.dev/dl/)。生产运行只需要 Release 中的二进制。
+如果使用 UFW：
 
 ```bash
-make build
-
-# VPS：首次启动只填写用户实际可访问的 HTTPS 地址
-./bin/nodebridge hub --public-url https://你的VPS公网IP:9443
-
-# 内网节点：另一个终端或另一台服务器，使用同一个二进制
-./bin/nodebridge node
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 30000:39999/tcp
 ```
 
-VPS 控制台地址是 `https://你的VPS公网IP:9443`。首次启动自动生成随机管理员密码，账号为 `admin`；在 VPS 上读取：
+本地节点只需能向 VPS 的 443 端口发起连接，无需公网 IP 或入站端口映射。以下部署方式无需向公网开放 9443。
+
+## 2. 配置 Nginx 和域名证书
+
+在 **VPS** 执行。已有 Nginx 站点和证书的用户，按 [Nginx 配置说明](docs/NGINX.md)检查 HTTPS 上游与 WebSocket 转发后，进入第 3 步；下面的建站命令用于新站点。
 
 ```bash
-cat data/hub/initial-admin.txt
+sudo apt update
+sudo apt install -y nginx certbot python3-certbot-nginx curl ca-certificates
+
+NB_DOMAIN=ssh.example.com
+
+sudo tee "/etc/nginx/sites-available/$NB_DOMAIN.conf" > /dev/null <<EOF
+map \$http_upgrade \$nodebridge_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $NB_DOMAIN;
+
+    location / {
+        proxy_pass https://127.0.0.1:9443;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$http_host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$nodebridge_connection_upgrade;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $NB_DOMAIN;
+        proxy_ssl_verify off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+}
+EOF
+
+sudo ln -sfn "/etc/nginx/sites-available/$NB_DOMAIN.conf" "/etc/nginx/sites-enabled/$NB_DOMAIN.conf"
+sudo nginx -t && sudo systemctl enable --now nginx
+sudo systemctl reload nginx
+sudo certbot --nginx -d "$NB_DOMAIN" --redirect
+sudo systemctl enable --now certbot.timer
 ```
 
-默认生成自签 HTTPS 证书，直接访问时浏览器首次提示证书未被信任。启动日志显示证书 SHA-256 指纹，可以与浏览器证书详情核对。v0.4.0 新配对链接支持自动 TLS 校验：直连自签 Hub 校验配对指纹；域名经 Nginx 代理则可校验域名、有效期和系统信任链，支持域名证书续期。旧节点配置仍保持严格指纹校验。登录后可以修改密码；修改初始管理员密码后，初始密码文件会删除。
+**上游 9443 必须使用 HTTPS**。浏览器和节点使用 Nginx 的域名证书，Nginx 通过本机回环连接 Hub 的自签证书。安装 Hub 前访问域名出现 502 属于正常现象。
 
-登录 VPS 控制台，填写节点名称并点击“生成配对链接”。在节点打开 `http://127.0.0.1:9899`，粘贴链接；没有桌面的服务器直接执行：
+## 3. 安装 VPS 端
 
-```bash
-./bin/nodebridge pair
-# 在提示后粘贴 nodebridge://pair/... 链接并回车
-```
-
-端口分配、TLS 指纹、节点 ID 和独立认证凭证都会自动保存。链接只能使用一次，15 分钟有效。配对完成后，在 VPS 控制台选择节点和 Linux 用户名，复制 SSH 命令。
-
-## 一个命令安装服务
-
-在 Linux/systemd 机器上直接安装最新 Release，不需要 Go、Python、npm 或 FRP。
-
-**VPS（直接访问）：** 把下面的 `你的VPS公网IP` 换成实际 IP；需要域名的 443 入口时见下方 Nginx 配置。
-
-```bash
-curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://你的VPS公网IP:9443
-```
-
-**内网服务器（无需公网 IP）：**
-
-```bash
-curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- node
-```
-
-安装后，在 VPS 控制台生成配对链接；在内网服务器执行 `nodebridge pair`，粘贴链接即可。也可以打开节点本地 `http://127.0.0.1:9899` 维护页面完成配对。
-
-脚本自动识别 amd64/arm64、下载对应安装包、校验 SHA-256，并配置 systemd 服务。所有服务以专用普通用户 `nodebridge` 运行，VPS 安装完成会显示首次管理员账号，并检查配置的公网 HTTPS/API 路由。防火墙需放行对外的 HTTPS 端口（直连默认 `9443`，Nginx 通常 `443`）和 SSH 端口池。
-
-[最新 Release 和下载文件](https://github.com/johnfan12/NodeBridge/releases/latest) · [安装脚本](https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh)
-
-也可以手动下载 Release 安装包，解压后运行：
-
-```bash
-# VPS
-sudo ./install.sh hub --public-url https://你的VPS公网IP:9443
-
-# 内网节点
-sudo ./install.sh node
-```
-
-从源码构建后，也可以直接安装：
-
-```bash
-sudo bash scripts/install.sh hub --public-url https://你的VPS公网IP:9443
-sudo bash scripts/install.sh node
-```
-
-默认下载仓库的最新正式 Release。需要指定版本或镜像时可以覆盖下载地址，例如固定安装 `v0.1.2`：
-
-```bash
-curl -fsSL https://github.com/johnfan12/NodeBridge/releases/download/v0.1.2/install.sh \
-  | sudo env NODEBRIDGE_RELEASE_BASE_URL=https://github.com/johnfan12/NodeBridge/releases/download/v0.1.2 \
-    bash -s -- hub --public-url https://你的VPS公网IP:9443
-```
-
-项目通过 GitHub Actions 发布：推送 `v*` 标签后运行检查、构建安装包，并发布独立安装脚本和校验和。
-
-## 域名 + Nginx（443 入口）
-
-已有域名解析、Nginx 和有效域名证书时，Hub 安装命令直接填写域名，不加 `:9443`：
+在 **VPS** 安装 Hub，公网地址填写域名，不加 `:9443`：
 
 ```bash
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://ssh.example.com
 ```
 
-**Hub 的 9443 始终使用 HTTPS**，`--public-url` 表示用户与节点实际访问的外部地址。Nginx 后端必须是 `https://127.0.0.1:9443`，使用 `http://` 会出现 400/502。还必须转发 WebSocket Upgrade 头，否则页面正常但节点无法连接。
-
-生成与本机监听端口匹配的配置：
+读取首次管理员账号与密码：
 
 ```bash
-sudo nodebridge nginx --data-dir /var/lib/nodebridge/hub
+sudo cat /var/lib/nodebridge/hub/initial-admin.txt
 ```
 
-将输出的 `location / { ... }` **替换**域名现有 HTTPS `server` 中的旧 `location /`，保留原来的 `server_name`、`ssl_certificate`、`ssl_certificate_key`。然后执行：
+打开 `https://ssh.example.com`，登录并修改初始密码。进入 **管理页面 → 服务器 → 接入服务器**，填写节点名称，生成配对链接。
+
+## 4. 安装本地节点并使用 SSH
+
+在 **需要被连接的本地服务器** 执行：
 
 ```bash
-sudo nginx -t
-sudo systemctl reload nginx
-sudo nodebridge doctor --data-dir /var/lib/nodebridge/hub
+sudo apt update
+sudo apt install -y curl ca-certificates openssh-server
+sudo systemctl enable --now ssh
+
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- node
+
+nodebridge pair
 ```
 
-hub 和 node 都升级至 v0.4.0 后，生成新配对链接并粘贴到未配对节点，即可通过域名的 443 端口完成配对与连接，无需额外开放公网 9443。Nginx 使用完整证书链；域名证书正常续期无需重新配对。
+按提示粘贴 VPS 生成的配对链接。链接只能使用一次，15 分钟有效。也可以在本地服务器打开 `http://127.0.0.1:9899` 粘贴链接。
 
-**已经通过“域名:9443”临时配对的部署**，可使用以下命令更新地址并保留节点 ID、凭证、固定 SSH 端口和暂停状态；地址变更时自动备份原配置：
+回到 VPS 面板，等待节点显示 **SSH 就绪**，点击 **SSH 连接**，填写本地服务器已有的 Linux 用户名，复制命令连接。公网 SSH 端口自动分配；认证使用该 Linux 用户的密码或 SSH 密钥，面板账号不等于 Linux 账号。
+
+## 升级
+
+### 面板升级
+
+管理员进入 **管理页面 → 版本更新 → 检查更新**，查看 Hub 和各节点版本，手动点击对应的升级按钮。检查更新不会自动安装；下载和校验期间服务继续运行。
+
+安装阶段会重启服务并断开对应 SSH 会话，Hub 升级影响全部节点。账号、配对、固定端口、暂停状态和证书保留。建议在没有 SSH 任务时升级。
+
+### 命令升级与旧地址迁移
+
+旧版本没有面板升级能力，或页面提示未安装更新执行器时，先在两端各执行一次下面的安装命令。此流程也可将临时使用的 `域名:9443` 迁移回域名的 443 入口，保留配对与端口。
+
+**VPS：** 先确认 Nginx 已按第 2 步配置，再执行：
 
 ```bash
-# VPS：将公告和配对使用的公网地址改回域名 443
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://ssh.example.com --reconfigure
-
-# 每台已配对节点：切换到域名 443，同时启用新版 TLS 校验
-curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- node --hub-url https://ssh.example.com --tls-mode auto --reconfigure
 ```
 
-两条命令分别重启对应服务，现有 SSH 会话会断开。尚未配对的节点按普通 node 安装命令更新，然后粘贴新链接。完整配置、诊断与仅修改地址的方法见 [Nginx 运维说明](docs/NGINX.md)。
-
-## 日常页面与管理页面
-
-### 中心版本管理与一键升级
-
-从 v0.5.0 起，管理员在“管理页面 → 版本更新”查看 Hub 和各节点的版本，点击“检查更新”获取最新正式 Release，再手动升级指定 Hub 或节点。检查不会自动安装；页面展示任务进度、失败原因和启动失败后的旧版本恢复状态。版本也显示在服务器列表和节点维护页中。
-
-两端首次需要运行一次新版安装脚本，以安装受限的 systemd 更新执行器。v0.4.1 及更旧节点没有上报版本与接收升级指令的能力，会明确显示需要首次升级。之后节点的下载通过现有隧道由 VPS 中转，不再要求节点直接连接 GitHub。
-
-下载和校验时服务保持运行，安装重启会断开对应 SSH 会话；Hub 更新影响全部节点。账号、配对、端口、暂停状态以及 Nginx 域名证书保留。操作与排障见 [面板升级说明](docs/UPDATES.md)。
-
-所有账号登录后默认进入服务器一览（`/`）。首页用一份连续列表展示服务器和连接状态，点击某行“SSH 连接”，在弹窗里填写 Linux 用户名并复制命令；GPU 指标与在线历史在“运行详情”中展开。管理员额外拥有每台服务器的暂停/恢复转发按钮。
-
-管理员通过右上角“管理页面”进入独立的 `/admin` 页面，按“服务器 / 账号 / 公告 / 操作记录”切换功能。点击“接入服务器”或“创建账号”才展开对应表单；全局暂停按钮在“服务器”页签底部的“全局 SSH 转发设置”中。每台服务器的暂停和移除按钮分组留出间距，移除操作保留名称确认。管理页面可通过“服务器一览”返回日常界面。普通用户不显示管理入口，直接访问 `/admin` 会返回首页；管理 API 仍要求管理员身份。
-
-### 首页公告栏
-
-管理员进入“管理页面 → 公告”（`/admin#announcements`），填写标题和内容，点击“发布公告”。所有已登录用户在服务器列表上方看到醒目的 Azure 蓝色公告栏；最新公告直接展示，较早公告折叠收起。没有公告时不显示空面板。首页和管理页每 5 秒自动检查更新，后台标签页在恢复可见后继续检查。
-
-公告支持纯文本与换行，标题最多 100 个字符，内容最多 2000 个字符，最多保留 20 条。只有管理员可发布或“撤下公告”；撤下后用户首页不再显示这条公告，发布与撤下操作保留审计记录。公告存入 VPS 的 `hub.db`，重启、更新与备份恢复后保留。
-
-从 v0.3.0 升级到 v0.3.1 只需在 VPS 重新执行 hub 安装命令并刷新浏览器，节点无需更新或重新配对。安装会重启 hub 并断开现有 SSH 会话，建议在空闲时更新；日常发布或撤下公告无需重启，不影响 SSH 连接。
-
-## 暂停 / 恢复 SSH 转发（保留 Web）
-
-| 操作位置 | 方法 | 影响范围 |
-| --- | --- | --- |
-| VPS 管理页面，管理员登录 | “服务器” → “全局 SSH 转发设置” → 暂停 / 恢复 | 全部节点 |
-| VPS 服务器列表（首页或管理页） | “暂停节点转发” / “恢复节点转发” | 所选节点 |
-| 本地节点 `http://127.0.0.1:9899` | “连接状态” → “暂停 SSH 转发” / “恢复 SSH 转发” | 本机节点 |
-
-暂停会**立即断开范围内的现有 SSH 会话和文件传输**，阻止新 SSH 转发；Web 页面继续可用，节点在线状态、GPU 指标和配对功能继续运行。不会停止系统的 `sshd` 或删除账号、配置、数据。公网 SSH 端口仍被保留，恢复后使用原来的端口，无需重新配对。暂停状态会保存，重启或更新后仍然有效。
-
-各位置的暂停独立生效：如果 VPS 全局和节点本机都暂停，需要分别恢复；首页服务器列表会显示暂停来源。普通控制台用户只能查看，VPS 的暂停操作需要管理员权限。
-
-无桌面的本地服务器也可以执行：
+**每台已配对节点：** 用独立后台任务更新，避免 SSH 断开时终止安装：
 
 ```bash
-# 暂停本机 SSH 转发；维护页使用自定义端口时替换 9899
-curl -fsS -X PUT http://127.0.0.1:9899/api/forwarding \
-  -H 'Content-Type: application/json' -H 'X-NodeBridge-Request: 1' \
-  -d '{"paused":true}'
-
-# 恢复本机 SSH 转发
-curl -fsS -X PUT http://127.0.0.1:9899/api/forwarding \
-  -H 'Content-Type: application/json' -H 'X-NodeBridge-Request: 1' \
-  -d '{"paused":false}'
+sudo systemd-run --unit=nodebridge-node-bootstrap --collect /bin/bash -c '
+set -euo pipefail
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh |
+  bash -s -- node --hub-url https://ssh.example.com --tls-mode auto --reconfigure
+'
 ```
 
-本地维护页和 VPS 控制台共享同一套 Azure 样式。已安装的 hub 和 node 都需要重新执行各自的安装命令才能获得这些按钮与新功能。更新会重启对应服务并断开其 SSH 会话，建议在空闲时进行。
-
-## 卸载整个服务（Web + 后端）
-
-以下命令适用于一键脚本安装的 Linux/systemd 服务，卸载后对应 Web 页面和 SSH 转发都停止。
-
-**本地节点：**
+查看该任务日志：
 
 ```bash
+sudo journalctl -u nodebridge-node-bootstrap -n 80 --no-pager
+```
+
+未配对节点按第 4 步安装即可。下载失败、离线升级与面板更新排障见[升级说明](docs/UPDATES.md)。
+
+## 卸载
+
+通过 VPS 自身 SSH 或节点的本地 / 局域网终端执行。卸载会停止对应 Web 页面与 SSH 转发。
+
+```bash
+# 本地节点
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/uninstall.sh | sudo bash -s -- node --purge
-```
 
-**远程 VPS：**
-
-```bash
+# VPS
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/uninstall.sh | sudo bash -s -- hub --purge
-```
 
-**同一台机器同时卸载两种模式：**
-
-```bash
+# 同一台机器同时卸载两种模式
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/uninstall.sh | sudo bash -s -- all --purge
 ```
 
-`--purge` 会永久删除所选模式的配置、配对凭证和数据库（hub 包括账号、端口记录、证书与审计）；需要保留数据以便重新安装时，去掉 `--purge`。脚本会停止并禁用服务、删除 systemd 单元；另一模式仍安装时保留共享二进制。两种模式都卸载且数据均已清除时，也删除共享程序与 `nodebridge` 系统账号。
+**`--purge` 永久删除对应配置、凭证与数据库。** 去掉它可保留数据，供重新安装使用。清空节点数据后需要重新配对；清空 Hub 数据后需要重建账号并让全部节点重新配对。卸载节点后，在 VPS 面板移除该节点可回收端口。
 
-卸载节点不会自动删除 VPS 的节点记录；在 VPS 控制台“移除节点”可撤销旧凭证并回收端口。重新安装已清理数据的节点需要新的配对链接。卸载 hub 会断开全部转发，重新安装已清理数据的 hub 需要所有节点重新配对。系统 SSH 服务、Linux 用户、用户文件和 GPU 驱动保留。操作应通过 VPS 自身 SSH 或节点的直接维护入口执行。
+## 维护
 
-离线使用 Release 安装包中的 `sudo bash uninstall.sh node --purge`（VPS 改为 `hub`）；源码仓库中使用 `sudo bash scripts/uninstall.sh node --purge`。手动运行二进制的部署需先停止对应进程，再删除自行指定的数据目录和二进制。
-
-## 需要填写的配置
-
-| 场景 | 必填项 | 自动处理 |
-| --- | --- | --- |
-| 首次安装 VPS | 公网 HTTPS 地址 | 证书、管理员密码、数据库、服务 |
-| 首次安装节点 | 无 | 本地维护页、SSH 默认端口 22 |
-| 接入节点 | 粘贴一次性配对链接 | VPS 地址、证书指纹、节点凭证、公网端口 |
-| 接入更多节点 | 新的配对链接 | 节点列表和不同的固定端口 |
-
-VPS 必须放行对外的 HTTPS 端口（直连默认 TCP `9443`，Nginx 默认 TCP `443`）和 SSH 公网端口池（默认 TCP `30000–39999`）。Nginx 部署的节点全部通过 443 连接后，不需要向公网开放 Hub 的 9443。端口池可以缩小到实际所需范围，例如 `--port-start 30000 --port-end 30009`。程序可以自动选端口，云安全组和防火墙需要由有权限的运维人员开放。
-
-节点无需公网 IP、入站端口或 API 端口映射，只需能主动访问 VPS 的控制台端口，并已有 SSH 服务。WebUI 不创建 Linux 账号；控制台账号和 Linux SSH 账号分别由控制台与节点系统管理。
-
-首次启动参数保存到 `config.json`，后续重启直接读配置。显式参数与现有配置不一致时会报错，避免修改参数却未生效；连接地址可通过上面的 `--reconfigure` 显式更新，CLI 同时需要 `--init-only`（安装脚本自动添加）。默认路径：
-
-| 数据 | 手动运行 | systemd 安装 |
-| --- | --- | --- |
-| hub | `./data/hub/` | `/var/lib/nodebridge/hub/` |
-| node | `./data/node/` | `/var/lib/nodebridge/node/` |
-
-## 已有功能
-
-- 自动配对、多节点展示、固定公网 SSH 端口自动分配与回收。
-- VPS 全局、单节点及节点本机暂停/恢复 SSH 转发，保留 Web、配对、状态上报；暂停状态持久化。
-- 节点连接状态、SSH 服务就绪状态、CPU 核数、GPU 利用率/显存/温度/功耗。
-- 每 10 秒上报状态，每 30 秒采样，保存最近 30 天在线记录。
-- 管理员预创建、登录/退出、可选自助注册、创建用户、角色修改、密码修改/重置、删除用户。
-- 普通用户查看节点和生成 SSH 命令；仅管理员可以接入/移除节点及管理账号。
-- 首页公告栏，管理员发布/撤下，已登录用户自动查看；公告持久化并记录操作审计。
-- 最多保留 1000 条账号、配对、节点管理审计；节点断连和失败详情写入运行日志。
-- 节点重连、hub 重启恢复端口、重复配对拦截、端口冲突跳过、端口池耗尽提示。
-
-## 检查与打包
+### 状态、日志与连接检查
 
 ```bash
-make check
-make release VERSION=v0.5.0
+# 当前版本
+nodebridge version
+
+# VPS 服务与公网入口检查
+sudo systemctl status nodebridge-hub --no-pager
+sudo journalctl -u nodebridge-hub -n 80 --no-pager
+sudo nodebridge doctor --data-dir /var/lib/nodebridge/hub
+
+# 本地节点服务与连接状态
+sudo systemctl status nodebridge-node --no-pager
+sudo journalctl -u nodebridge-node -n 80 --no-pager
+curl -fsS http://127.0.0.1:9899/api/node
+
+# 面板发起的节点升级日志；VPS 升级将 node 改为 hub
+sudo journalctl -u nodebridge-update-node -n 80 --no-pager
+
+# VPS 域名证书续期检查
+sudo certbot renew --dry-run
 ```
 
-检查包括 Go vet、竞态检测下的集成测试、JS 语法和脚本语法检查。集成测试启动真实 HTTPS hub、节点反向连接与本地 TCP 服务，验证大数据转发、半关闭、重连、配对原子性、端口冲突、凭证撤销、权限与证书校验。
+节点维护页：`http://127.0.0.1:9899`。Hub 数据位于 `/var/lib/nodebridge/hub/`，节点数据位于 `/var/lib/nodebridge/node/`，各自的 `config.json` 保存配置。备份与恢复见[运维说明](docs/OPERATIONS.md)。
 
-运维与恢复步骤见 [运维文档](docs/OPERATIONS.md)，协议与设计见 [架构说明](docs/ARCHITECTURE.md)。
+### 暂停与恢复 SSH 转发
+
+| 操作位置 | 方法 | 范围 |
+| --- | --- | --- |
+| VPS 管理页面 | 服务器 → 全局 SSH 转发设置 → 暂停 / 恢复 | 全部节点 |
+| VPS 服务器列表 | 暂停节点转发 / 恢复节点转发 | 所选节点 |
+| 节点本地维护页 | 连接状态 → 暂停 SSH 转发 / 恢复 SSH 转发 | 本机节点 |
+
+暂停会立即断开范围内的 SSH 会话与文件传输，Web、配对与状态上报继续运行。原端口保留，恢复后无需重新配对。三个位置的暂停开关独立生效，需要分别恢复；暂停状态在重启与升级后保留。
+
+需要连 Web 一起停止时，通过直接维护终端执行：
+
+```bash
+# 在节点执行；VPS 将 nodebridge-node 改为 nodebridge-hub
+sudo systemctl stop nodebridge-node
+sudo systemctl start nodebridge-node
+
+# 重启服务
+sudo systemctl restart nodebridge-node
+```
+
+## 项目架构
+
+一个 Go 二进制提供两种模式：VPS 运行 `hub`，负责 Web 控制台、账号、配对与端口分配；内网服务器运行 `node`，主动建立隧道并转发本机 SSH。WebUI 内嵌，数据保存在本机，无需额外部署数据库。
+
+```mermaid
+flowchart LR
+    browser[浏览器] -->|HTTPS 443| nginx[Nginx]
+    node[内网服务器 · node] -->|主动连接 HTTPS / WebSocket 443| nginx
+    nginx -->|HTTPS 9443| hub[VPS · hub]
+    ssh[SSH 客户端] -->|分配的公网端口| hub
+    hub -->|隧道内的数据流| node
+    node -->|127.0.0.1:22| sshd[节点 SSH 服务]
+```
+
+NodeBridge 负责 SSH；Overleaf 等其他服务转发使用 [PortBridge](https://github.com/johnfan12/PortBridge)。更多细节：[架构](docs/ARCHITECTURE.md) · [迁移](docs/MIGRATION.md) · [Release 下载](https://github.com/johnfan12/NodeBridge/releases/latest)。
