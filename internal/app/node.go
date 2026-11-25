@@ -18,8 +18,10 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
+	"nodebridge/internal/buildinfo"
 	"nodebridge/internal/telemetry"
 	"nodebridge/internal/transport"
+	"nodebridge/internal/updater"
 	"nodebridge/internal/web"
 )
 
@@ -34,10 +36,13 @@ type Node struct {
 	wake       chan struct{}
 	reportWake chan struct{}
 	streams    map[*yamux.Stream]net.Conn
+	session    *yamux.Session
+	updates    *updater.Manager
+	version    string
 }
 
 func NewNode(ctx context.Context, dir string, c Config) *Node {
-	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), reportWake: make(chan struct{}, 1), streams: map[*yamux.Stream]net.Conn{}, port: c.PublicPort}
+	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), reportWake: make(chan struct{}, 1), streams: map[*yamux.Stream]net.Conn{}, port: c.PublicPort, updates: updater.NewManager("node", dir), version: buildinfo.Version}
 }
 
 func InitNode(dir, listen string, sshPort int) (Config, error) {
@@ -120,14 +125,17 @@ func (n *Node) Pair(link string) error {
 
 func (n *Node) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"mode": "node"}) })
+	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, 200, map[string]string{"mode": "node", "version": n.version})
+	})
+	mux.HandleFunc("GET /api/update/relay", n.updateRelay)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, 200, map[string]any{"ok": true, "mode": "node"})
+		respond(w, 200, map[string]any{"ok": true, "mode": "node", "version": n.version})
 	})
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		respond(w, 200, map[string]any{"paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused})
+		respond(w, 200, map[string]any{"version": n.version, "updater_ready": n.updates.Ready(), "update": n.updates.Status(), "paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused})
 	})
 	mux.HandleFunc("POST /api/pair", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -236,8 +244,16 @@ func (n *Node) connect(c Config) error {
 	defer session.Close()
 	n.mu.Lock()
 	n.online = true
+	n.session = session
 	n.error = ""
 	n.mu.Unlock()
+	defer func() {
+		n.mu.Lock()
+		if n.session == session {
+			n.session = nil
+		}
+		n.mu.Unlock()
+	}()
 	slog.Info("tunnel connected", "hub", c.HubURL)
 	statusCtx, stop := context.WithCancel(n.ctx)
 	defer stop()
@@ -262,6 +278,9 @@ func (n *Node) report(ctx context.Context, c Config, session *yamux.Session) {
 	defer ticker.Stop()
 	for {
 		s := telemetry.Collect(ctx, c.SSHPort)
+		s.Version = n.version
+		s.UpdaterReady = n.updates.Ready()
+		s.Update = n.updates.Status()
 		n.mu.Lock()
 		s.ForwardingPaused = n.config.ForwardingPaused
 		n.mu.Unlock()
@@ -289,7 +308,14 @@ func (n *Node) serveStream(c Config, stream *yamux.Stream) {
 	defer stream.Close()
 	stream.SetDeadline(time.Now().Add(10 * time.Second))
 	var kind [1]byte
-	if _, err := io.ReadFull(stream, kind[:]); err != nil || kind[0] != transport.SSH {
+	if _, err := io.ReadFull(stream, kind[:]); err != nil {
+		return
+	}
+	if kind[0] == transport.Update {
+		n.receiveUpdate(stream)
+		return
+	}
+	if kind[0] != transport.SSH {
 		return
 	}
 	n.mu.Lock()

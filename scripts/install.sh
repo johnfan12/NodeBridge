@@ -23,6 +23,7 @@ shift
 [[ $EUID == 0 ]] || { echo '请使用 sudo 运行安装脚本。' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo '需要 systemd；可直接运行 nodebridge。' >&2; exit 1; }
 command -v runuser >/dev/null || { echo '需要 util-linux 提供的 runuser。' >&2; exit 1; }
+command -v flock >/dev/null || { echo '需要 util-linux 提供的 flock。' >&2; exit 1; }
 
 binary=''
 args=()
@@ -49,8 +50,17 @@ if [[ -z $binary ]]; then
   case $(uname -m) in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo '支持 amd64 和 arm64。' >&2; exit 1 ;; esac
   temp_dir=$(mktemp -d)
   asset=nodebridge-linux-$arch.tar.gz
-  curl --proto '=https' --tlsv1.2 -fsSL "${base%/}/$asset" -o "$temp_dir/$asset"
-  curl --proto '=https' --tlsv1.2 -fsSL "${base%/}/SHA256SUMS" -o "$temp_dir/SHA256SUMS"
+  download() {
+    local attempt
+    for attempt in 1 2 3; do
+      if curl --proto '=https' --tlsv1.2 --http1.1 --connect-timeout 15 --max-time 180 -fsSL "$1" -o "$2"; then return 0; fi
+      echo "下载失败，正在重试（$attempt/3）：$1" >&2
+      sleep 2
+    done
+    return 1
+  }
+  download "${base%/}/$asset" "$temp_dir/$asset"
+  download "${base%/}/SHA256SUMS" "$temp_dir/SHA256SUMS"
   # Extract only the expected checksum; never execute or trust paths from a checksum file.
   checksum=$(awk -v name="$asset" '$2 == name && $1 ~ /^[0-9a-f]+$/ && length($1) == 64 { print $1 }' "$temp_dir/SHA256SUMS")
   [[ ${#checksum} == 64 ]] || { echo '缺少有效的发布校验和。' >&2; exit 1; }
@@ -61,9 +71,17 @@ if [[ -z $binary ]]; then
 fi
 [[ -f $binary && -x $binary ]] || { echo '未找到可执行的 nodebridge。' >&2; exit 1; }
 
+# Serialize manual installs with panel updates on the shared binary.
+previous_umask=$(umask)
+umask 077
+exec 9>/run/nodebridge-update.lock
+umask "$previous_umask"
+flock -x 9
+
 target=/usr/local/bin/nodebridge
 dir=/var/lib/nodebridge/$mode
 if ! id nodebridge >/dev/null 2>&1; then useradd --system --home-dir /var/lib/nodebridge --shell /usr/sbin/nologin nodebridge; fi
+install -d -m 755 -o root -g root /var/lib/nodebridge
 install -d -m 700 -o nodebridge -g nodebridge "$dir"
 if [[ $(readlink -f "$binary") != "$target" ]]; then
   install -m 755 "$binary" "$target.new"
@@ -98,11 +116,49 @@ RestrictSUIDSGID=true
 [Install]
 WantedBy=multi-user.target
 UNIT
+
+# The Web process queues only a version and job id. A separate root service
+# downloads from the fixed official repository and verifies the archive again.
+install -d -m 755 -o root -g root /var/lib/nodebridge-updater "/var/lib/nodebridge-updater/$mode"
+install -d -m 700 -o root -g root "/var/lib/nodebridge-updater/$mode/private"
+cat > "/etc/systemd/system/nodebridge-update-$mode.service" <<UNIT
+[Unit]
+Description=NodeBridge verified updater ($mode)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=3600
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$target update-worker --mode $mode
+TimeoutStartSec=11min
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin /var/lib/nodebridge /var/lib/nodebridge-updater /run
+UNIT
+cat > "/etc/systemd/system/nodebridge-update-$mode.path" <<UNIT
+[Unit]
+Description=NodeBridge update requests ($mode)
+
+[Path]
+PathExists=$dir/update-request.json
+Unit=nodebridge-update-$mode.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
 systemctl daemon-reload
+systemctl enable --now "nodebridge-update-$mode.path"
 systemctl enable "nodebridge-$mode.service"
 systemctl restart "nodebridge-$mode.service"
 systemctl is-active --quiet "nodebridge-$mode.service"
 echo "安装完成：nodebridge-$mode.service"
+echo '面板升级执行器已启用；管理员可在“版本更新”页检查并手动升级。'
 if [[ $mode == hub ]]; then
   if [[ -f $dir/initial-admin.txt ]]; then
     echo '首次管理员账号：'

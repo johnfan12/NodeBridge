@@ -21,6 +21,7 @@
           <button id="tab-servers" role="tab" type="button" aria-selected="true" aria-controls="panel-servers" data-tab="servers">服务器</button>
           <button id="tab-accounts" role="tab" type="button" aria-selected="false" aria-controls="panel-accounts" data-tab="accounts" tabindex="-1">账号</button>
           <button id="tab-announcements" role="tab" type="button" aria-selected="false" aria-controls="panel-announcements" data-tab="announcements" tabindex="-1">公告</button>
+          <button id="tab-updates" role="tab" type="button" aria-selected="false" aria-controls="panel-updates" data-tab="updates" tabindex="-1">版本更新</button>
           <button id="tab-activity" role="tab" type="button" aria-selected="false" aria-controls="panel-activity" data-tab="activity" tabindex="-1">操作记录</button>
         </div>
         <section id="panel-servers" role="tabpanel" aria-labelledby="tab-servers">
@@ -39,6 +40,13 @@
           <div class="workspace-body"><form id="announcement-form"><label>标题<input name="title" placeholder="例如 服务器维护通知" required maxlength="100"></label><label>内容<textarea name="content" placeholder="填写需要告知用户的内容，支持换行。" rows="5" required maxlength="2000"></textarea></label><div class="actions"><button type="submit">发布公告</button><span class="muted">以纯文本展示，最多 2000 字。</span></div></form></div>
           <div class="workspace-head announcement-list-head"><h2>已发布公告</h2><span id="announcement-count" class="muted"></span></div>
           <div id="admin-announcements"></div>
+        </section>
+        <section id="panel-updates" role="tabpanel" aria-labelledby="tab-updates" hidden>
+          <div class="workspace-head"><div><h2>版本管理</h2><p id="update-latest" class="muted">点击“检查更新”获取最新正式版本。</p></div><button id="check-update" type="button" class="secondary">检查更新</button></div>
+          <div class="workspace-body update-intro"><p>检查版本后，手动选择需要升级的控制台或节点。下载期间服务继续运行；安装重启时，对应 SSH 会话会断开。</p><p id="update-feedback" role="status" aria-live="polite" class="muted"></p></div>
+          <div id="update-hub"></div>
+          <div class="workspace-head announcement-list-head"><h2>节点版本</h2><span id="update-node-count" class="muted"></span></div>
+          <div id="update-nodes"></div>
         </section>
         <section id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" hidden><div class="workspace-head"><h2>最近操作</h2><button id="audit-refresh" type="button" class="secondary">刷新</button></div><div id="audit" class="audit workspace-body"></div></section>
       </section>

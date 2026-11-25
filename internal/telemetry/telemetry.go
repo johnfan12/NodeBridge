@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"nodebridge/internal/buildinfo"
+	"nodebridge/internal/updater"
 )
 
 type GPU struct {
@@ -23,15 +26,18 @@ type GPU struct {
 }
 
 type Status struct {
-	ForwardingPaused bool      `json:"forwarding_paused,omitempty"`
-	Hostname         string    `json:"hostname"`
-	OS               string    `json:"os"`
-	Arch             string    `json:"arch"`
-	CPUs             int       `json:"cpus"`
-	SSHReady         bool      `json:"ssh_ready"`
-	GPUs             []GPU     `json:"gpus"`
-	GPUError         string    `json:"gpu_error,omitempty"`
-	At               time.Time `json:"at"`
+	Version          string         `json:"version,omitempty"`
+	UpdaterReady     bool           `json:"updater_ready,omitempty"`
+	Update           updater.Status `json:"update,omitempty"`
+	ForwardingPaused bool           `json:"forwarding_paused,omitempty"`
+	Hostname         string         `json:"hostname"`
+	OS               string         `json:"os"`
+	Arch             string         `json:"arch"`
+	CPUs             int            `json:"cpus"`
+	SSHReady         bool           `json:"ssh_ready"`
+	GPUs             []GPU          `json:"gpus"`
+	GPUError         string         `json:"gpu_error,omitempty"`
+	At               time.Time      `json:"at"`
 }
 
 func number(s string) *float64 {
@@ -44,7 +50,7 @@ func number(s string) *float64 {
 
 func Collect(ctx context.Context, sshPort int) Status {
 	host, _ := os.Hostname()
-	s := Status{Hostname: host, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GPUs: []GPU{}, At: time.Now().UTC()}
+	s := Status{Version: buildinfo.Version, Hostname: host, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GPUs: []GPU{}, At: time.Now().UTC()}
 	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(sshPort)), time.Second)
 	if err == nil {
 		s.SSHReady = true

@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	SSH    byte = 1
-	Status byte = 2
+	SSH         byte = 1
+	Status      byte = 2
+	Update      byte = 4
+	ReleaseDial byte = 5
 )
 
 func Config() *yamux.Config {

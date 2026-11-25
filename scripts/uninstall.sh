@@ -22,10 +22,23 @@ if [[ ${1:-} == --purge ]]; then purge=true; shift; fi
 [[ $# == 0 ]] || { usage; exit 1; }
 [[ $(uname -s) == Linux && $EUID == 0 ]] || { echo '请在 Linux 上使用 sudo 运行。' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo '需要 systemd。' >&2; exit 1; }
+command -v flock >/dev/null || { echo '需要 util-linux 提供的 flock。' >&2; exit 1; }
+previous_umask=$(umask)
+umask 077
+exec 9>/run/nodebridge-update.lock
+umask "$previous_umask"
+flock -x 9
 
 modes=("$mode")
 [[ $mode != all ]] || modes=(hub node)
 for selected in "${modes[@]}"; do
+  if [[ -e /etc/systemd/system/nodebridge-update-$selected.path ]]; then
+    systemctl disable --now "nodebridge-update-$selected.path"
+  fi
+  if [[ -e /etc/systemd/system/nodebridge-update-$selected.service ]]; then
+    systemctl stop "nodebridge-update-$selected.service"
+  fi
+  rm -f -- "/etc/systemd/system/nodebridge-update-$selected.path" "/etc/systemd/system/nodebridge-update-$selected.service"
   unit=nodebridge-$selected.service
   # Fail before deleting anything if a running service could not be stopped.
   if [[ -e /etc/systemd/system/$unit ]] || systemctl cat "$unit" >/dev/null 2>&1; then
@@ -41,13 +54,14 @@ for selected in "${modes[@]}"; do
     echo "服务仍在运行，停止卸载：nodebridge-$selected.service" >&2
     exit 1
   fi
-  if $purge; then rm -rf -- "/var/lib/nodebridge/$selected"; fi
+  if $purge; then rm -rf -- "/var/lib/nodebridge/$selected" "/var/lib/nodebridge-updater/$selected"; fi
 done
 
 # Both modes use this binary. Never remove it while either unit remains installed.
 if ! systemctl cat nodebridge-hub.service >/dev/null 2>&1 &&
    ! systemctl cat nodebridge-node.service >/dev/null 2>&1; then
   rm -f -- /usr/local/bin/nodebridge /usr/local/bin/nodebridge.new
+  rmdir -- /var/lib/nodebridge-updater 2>/dev/null || true
   # Retained data needs the same uid when reinstalling.
   if [[ ! -e /var/lib/nodebridge/hub && ! -e /var/lib/nodebridge/node ]]; then
     rmdir -- /var/lib/nodebridge 2>/dev/null || true

@@ -20,11 +20,14 @@ import (
 	"time"
 
 	"nodebridge/internal/app"
+	"nodebridge/internal/buildinfo"
+	"nodebridge/internal/updater"
 )
 
 var version = "dev"
 
 func main() {
+	buildinfo.Version = version
 	if err := run(); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
@@ -40,6 +43,19 @@ func run() error {
 		return nil
 	}
 	mode := os.Args[1]
+	if mode == "update-worker" {
+		fs := flag.NewFlagSet(mode, flag.ContinueOnError)
+		selected := fs.String("mode", "", "固定服务模式 hub/node")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("存在无法识别的更新执行器参数")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		return updater.NewWorker(*selected).Run(ctx)
+	}
 	if mode == "version" {
 		fmt.Println("NodeBridge", version)
 		return nil

@@ -23,9 +23,11 @@ import (
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"golang.org/x/crypto/bcrypt"
+	"nodebridge/internal/buildinfo"
 	"nodebridge/internal/store"
 	"nodebridge/internal/telemetry"
 	"nodebridge/internal/transport"
+	"nodebridge/internal/updater"
 	"nodebridge/internal/web"
 )
 
@@ -45,18 +47,25 @@ type attempt struct {
 }
 
 type Hub struct {
-	Config      Config
-	Store       *store.Store
-	Fingerprint string
-	mu          sync.Mutex
-	live        map[string]*liveNode
-	attempts    map[string]attempt
-	ctx         context.Context
-	closed      bool
-	paused      bool
-	dir         string
-	stopMonitor chan struct{}
-	monitorDone chan struct{}
+	Config        Config
+	Store         *store.Store
+	Fingerprint   string
+	mu            sync.Mutex
+	live          map[string]*liveNode
+	attempts      map[string]attempt
+	ctx           context.Context
+	closed        bool
+	paused        bool
+	dir           string
+	stopMonitor   chan struct{}
+	monitorDone   chan struct{}
+	updates       *updater.Manager
+	updateMu      sync.Mutex
+	latest        updater.Release
+	releaseClient *http.Client
+	releaseSlots  chan struct{}
+	version       string
+	releaseDial   func(context.Context, string) (net.Conn, error)
 }
 
 func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
@@ -72,6 +81,16 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 	}
 	fp := hashBytes(cert.Certificate[0])
 	h := &Hub{Config: c, Store: s, Fingerprint: fp, live: map[string]*liveNode{}, attempts: map[string]attempt{}, ctx: ctx, dir: dir, stopMonitor: make(chan struct{}), monitorDone: make(chan struct{})}
+	h.updates = updater.NewManager("hub", dir)
+	h.version = buildinfo.Version
+	h.releaseClient = updater.HTTPClient(nil)
+	h.releaseSlots = make(chan struct{}, 8)
+	if b, err := os.ReadFile(filepath.Join(dir, "latest-release.json")); err == nil && len(b) < 16384 {
+		_ = json.Unmarshal(b, &h.latest)
+		if !updater.ValidVersion(h.latest.Version) || h.latest.URL != updater.Repository+"/releases/tag/"+h.latest.Version {
+			h.latest = updater.Release{}
+		}
+	}
 	err = s.Update(func(state *store.State) error {
 		if len(state.Users) > 0 {
 			return nil
@@ -139,6 +158,7 @@ func (h *Hub) Close() error {
 	}
 	h.mu.Unlock()
 	<-h.monitorDone
+	h.releaseClient.CloseIdleConnections()
 	return h.Store.Close()
 }
 
@@ -195,7 +215,7 @@ func security(next http.Handler) http.Handler {
 func (h *Hub) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, 200, map[string]any{"ok": true, "mode": "hub"})
+		respond(w, 200, map[string]any{"ok": true, "mode": "hub", "version": h.version})
 	})
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		var allow bool
@@ -203,7 +223,7 @@ func (h *Hub) Handler() http.Handler {
 			fail(w, 500, "读取配置失败")
 			return
 		}
-		respond(w, 200, map[string]any{"mode": "hub", "allow_register": allow})
+		respond(w, 200, map[string]any{"mode": "hub", "allow_register": allow, "version": h.version})
 	})
 	mux.HandleFunc("POST /api/login", h.login)
 	mux.HandleFunc("POST /api/register", h.register)
@@ -213,6 +233,10 @@ func (h *Hub) Handler() http.Handler {
 	mux.Handle("POST /api/logout", h.auth(false, h.logout))
 	mux.Handle("PUT /api/password", h.auth(false, h.password))
 	mux.Handle("GET /api/nodes", h.auth(false, h.nodes))
+	mux.Handle("GET /api/updates", h.auth(true, h.updateOverview))
+	mux.Handle("POST /api/updates/check", h.auth(true, h.checkUpdate))
+	mux.Handle("POST /api/updates/hub", h.auth(true, h.startUpdate))
+	mux.Handle("POST /api/nodes/{id}/update", h.auth(true, h.startUpdate))
 	mux.Handle("GET /api/announcements", h.auth(false, h.announcements))
 	mux.Handle("POST /api/announcements", h.auth(true, h.publishAnnouncement))
 	mux.Handle("DELETE /api/announcements/{id}", h.auth(true, h.withdrawAnnouncement))
@@ -320,6 +344,8 @@ func (h *Hub) nodes(w http.ResponseWriter, r *http.Request, u store.User) {
 		row["forwarding_paused"] = n.ForwardingPaused
 		row["node_paused"] = l != nil && l.status.ForwardingPaused
 		row["last_seen"] = n.LastSeen
+		row["version"] = n.Version
+		row["arch"] = n.Arch
 		history := make([]store.Daily, 0, 30)
 		for days := 29; days >= 0; days-- {
 			date := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
@@ -330,6 +356,10 @@ func (h *Hub) nodes(w http.ResponseWriter, r *http.Request, u store.User) {
 		}
 		row["history"] = history
 		if l != nil {
+			if l.status.Version != "" {
+				row["version"] = l.status.Version
+				row["arch"] = l.status.Arch
+			}
 			row["status"] = l.status
 			if !l.seen.IsZero() {
 				row["last_seen"] = l.seen
@@ -451,6 +481,7 @@ func (h *Hub) deleteNode(w http.ResponseWriter, r *http.Request, u store.User) {
 			return errors.New("节点不存在")
 		}
 		delete(s.Nodes, id)
+		delete(s.UpdateTasks, id)
 		for key, d := range s.Daily {
 			if d.NodeID == id {
 				delete(s.Daily, key)
@@ -530,26 +561,33 @@ func (h *Hub) connect(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 		slog.Info("node disconnected", "node", id)
 	}()
+	streamCapacity := make(chan struct{}, 32)
 	for {
 		stream, err := session.AcceptStream()
 		if err != nil {
 			return
 		}
-		// Only telemetry flows node -> hub. Bound each report and its lifetime.
 		stream.SetDeadline(time.Now().Add(5 * time.Second))
 		var kind [1]byte
-		if _, err = io.ReadFull(stream, kind[:]); err == nil && kind[0] == transport.Status {
-			var status telemetry.Status
-			if json.NewDecoder(io.LimitReader(stream, 64*1024)).Decode(&status) == nil {
-				h.mu.Lock()
-				if l := h.live[id]; l != nil && l.session == session {
-					l.status = status
-					l.seen = time.Now().UTC()
-				}
-				h.mu.Unlock()
-			}
+		if _, err = io.ReadFull(stream, kind[:]); err != nil {
+			stream.Close()
+			continue
 		}
-		stream.Close()
+		if kind[0] == transport.Status {
+			h.nodeStatus(id, session, stream)
+			stream.Close()
+			continue
+		}
+		if kind[0] != transport.ReleaseDial {
+			stream.Close()
+			continue
+		}
+		select {
+		case streamCapacity <- struct{}{}:
+			go func() { defer func() { <-streamCapacity; stream.Close() }(); h.releaseStream(stream) }()
+		default:
+			stream.Close()
+		}
 	}
 }
 

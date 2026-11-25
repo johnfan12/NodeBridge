@@ -5,6 +5,7 @@ function on(id, event, action) { $(id)?.addEventListener(event, action); }
 let config = {}, me = null, nodes = [], refreshBusy = false;
 const expandedNodes = new Map();
 let announcementsKey = '';
+let updatesKey = '';
 function show(id, visible = true) { const e = $(id); if (e) e.hidden = !visible; }
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function notice(message, error = false) { const target = $('ssh-dialog')?.open ? $('ssh-feedback') : $('notice'); target.textContent = message; target.className = error ? 'error' : ''; target.hidden = false; }
@@ -42,7 +43,7 @@ async function dashboard() {
     const link = el('a', adminPage ? '服务器一览' : '管理页面', 'toolbar-link'); link.href = adminPage ? '/' : '/admin'; toolbar.append(link);
   }
   toolbar.append(button('修改密码', changePassword), button('退出', logout));
-  if (adminPage) { activateTab(location.hash.slice(1)); await Promise.all([refreshAdminNodes(), refreshUsers(), refreshAudit(), refreshAnnouncements()]); } else await Promise.all([refreshNodes(), refreshAnnouncements()]);
+  if (adminPage) { activateTab(location.hash.slice(1)); await Promise.all([refreshAdminNodes(), refreshUsers(), refreshAudit(), refreshAnnouncements(), refreshUpdates()]); } else await Promise.all([refreshNodes(), refreshAnnouncements()]);
 }
 async function logout() { await api('/api/logout', 'POST', {}); me = null; location.reload(); }
 function nodeState(n) {
@@ -98,7 +99,7 @@ async function refreshNodes() {
     row.dataset.nodeId = n.id;
     const title = el('div', undefined, 'node-title'), status = nodeState(n);
     title.append(el('h3', n.name), el('span', status.text, `badge ${status.cls}`));
-    info.append(title, el('p', `${n.host}:${n.port}`, 'node-address'));
+    info.append(title, el('p', `${n.host}:${n.port}${n.version ? ` · ${n.version}` : ''}`, 'node-address'));
     const actions = el('div', undefined, 'actions');
     const connect = button('SSH 连接', () => openSSH(n.id), 'primary'); connect.disabled = !n.ssh_ready;
     actions.append(connect); if (me.admin) actions.append(nodePauseButton(n, refreshNodes));
@@ -144,7 +145,7 @@ async function refreshAdminNodes() {
     const row = el('div', undefined, 'admin-node-row'), info = el('div', undefined, 'node-info'), title = el('div', undefined, 'node-title'), status = nodeState(n);
     row.dataset.nodeId = n.id;
     title.append(el('h3', n.name), el('span', status.text, `badge ${status.cls}`));
-    info.append(title, el('p', `${n.host}:${n.port}`, 'node-address'));
+    info.append(title, el('p', `${n.host}:${n.port}${n.version ? ` · ${n.version}` : ''}`, 'node-address'));
     const actions = el('div', undefined, 'actions');
     actions.append(nodePauseButton(n, refreshAdminNodes), button('移除节点', async () => {
       if (prompt(`输入「${n.name}」确认移除。配对凭证将撤销，SSH 会话将断开。`) !== n.name) return;
@@ -158,7 +159,7 @@ async function refreshNode() {
   const s = await api('/api/node'); const content = $('local-status'); content.replaceChildren();
   content.append(el('span', s.online ? '已连接' : s.paired ? '正在连接控制台' : '等待配对', `badge ${s.online ? 'good' : ''}`));
   if (s.hub_url) content.append(el('p', s.hub_url, 'muted'));
-  content.append(el('p', `本地 SSH 端口：${s.ssh_port}`, 'muted'));
+  content.append(el('p', `本地 SSH 端口：${s.ssh_port}${s.version ? ` · NodeBridge ${s.version}` : ''}`, 'muted'));
   if (s.error) content.append(el('p', s.error, 'muted'));
   if (s.port) content.append(el('p', `固定公网端口：${s.port}`, 'muted'));
   forwardingControl('local-forwarding', s.forwarding_paused, '/api/forwarding', '这台节点', refreshNode);
@@ -242,6 +243,60 @@ function passwordDialog(title, current) {
     dialog.addEventListener('close', () => { dialog.remove(); resolve(value); }, { once: true }); document.body.append(dialog); dialog.showModal();
   });
 }
+const updatePhases = { queued: '等待执行', checking: '检查发布文件', downloading: '正在下载安装包', verifying: '校验安装包', installing: '正在安装', restarting: '正在重启', rolling_back: '正在恢复旧版本', rolled_back: '已恢复旧版本', succeeded: '升级完成', failed: '升级失败' };
+function updateBusy(phase) { return ['queued', 'checking', 'downloading', 'verifying', 'installing', 'restarting', 'rolling_back'].includes(phase); }
+function newerVersion(a, b) {
+  const pattern = /^v(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
+  const x = pattern.exec(a || ''), y = pattern.exec(b || '');
+  if (!x || !y) return false;
+  for (let i = 1; i <= 3; i++) if (+x[i] !== +y[i]) return +x[i] > +y[i];
+  return false;
+}
+function updateRow(item, latest, hub = false) {
+  const row = el('article', undefined, 'update-row'), info = el('div', undefined, 'node-info'); row.dataset.nodeId = hub ? 'hub' : item.id;
+  const title = el('div', undefined, 'node-title'); title.append(el('h3', hub ? '控制台 Hub' : item.name));
+  if (!hub) title.append(el('span', item.online ? '在线' : '离线', `badge ${item.online ? 'good' : ''}`));
+  info.append(title, el('p', `${item.version || '旧版 · 未上报版本'}${item.arch ? ` · ${item.arch}` : ''}`, 'node-address'));
+  if (latest.version === item.version) info.append(el('p', '已是最新正式版本', 'muted'));
+  const job = item.update || {}, busy = updateBusy(job.phase);
+  if (job.phase) info.append(el('p', `${updatePhases[job.phase] || job.phase}${job.version ? ` · ${job.version}` : ''}${job.message ? `：${job.message}` : ''}`, job.phase === 'failed' || job.phase === 'rolled_back' ? 'update-error' : 'muted'));
+  if (!item.version) info.append(el('p', '版本尚未上报；旧版节点需先运行一次新版安装命令。', 'muted'));
+  else if (!item.updater_ready && (hub || item.online)) info.append(el('p', '先运行一次新版安装命令启用面板升级，之后可在此管理。', 'muted'));
+  else if (!hub && !item.online) info.append(el('p', '节点上线后可执行升级。', 'muted'));
+  const canUpdate = item.updater_ready && (hub || item.online) && newerVersion(latest.version, item.version) && !busy;
+  const action = button(busy ? '升级进行中…' : '升级', async () => {
+    const scope = hub ? '此 VPS 上的 NodeBridge 服务' : `节点「${item.name}」`;
+    if (!confirm(`将${scope}从 ${item.version} 更新到 ${latest.version}？安装时会重启服务并断开对应 SSH 会话。`)) return;
+    await api(hub ? '/api/updates/hub' : `/api/nodes/${encodeURIComponent(item.id)}/update`, 'POST', { version: latest.version });
+    $('update-feedback').textContent = '升级任务已提交，进度会自动更新。'; await refreshUpdates();
+  }, canUpdate ? 'primary' : 'secondary');
+  action.disabled = !canUpdate; action.setAttribute('aria-label', `升级${hub ? '控制台 Hub' : item.name}`);
+  row.append(info, action); return row;
+}
+async function refreshUpdates() {
+  const data = await api('/api/updates'), key = JSON.stringify(data);
+  if (!me || key === updatesKey) return;
+  const latest = data.latest || {}, content = $('update-nodes'), focus = listFocus(content);
+  $('update-latest').replaceChildren();
+  if (latest.version) {
+    const link = el('a', latest.version); link.href = latest.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    $('update-latest').append(el('span', '最新正式版 '), link, el('span', ` · 检查于 ${date(latest.checked_at)}`));
+  } else $('update-latest').textContent = '点击“检查更新”获取最新正式版本。';
+  const hubFocus = listFocus($('update-hub')); $('update-hub').replaceChildren(updateRow(data.hub, latest, true)); restoreListFocus($('update-hub'), hubFocus);
+  content.replaceChildren(); $('update-node-count').textContent = `${data.nodes.length} 台服务器`;
+  for (const item of data.nodes) content.append(updateRow(item, latest));
+  if (!data.nodes.length) content.append(el('p', '接入节点后，会在这里显示版本和升级状态。', 'workspace-body muted'));
+  restoreListFocus(content, focus); updatesKey = key;
+  if (data.hub.update?.phase === 'succeeded' && data.hub.version !== config.version) {
+    $('update-feedback').replaceChildren(el('span', '控制台已升级。'), button('刷新页面', () => location.reload()));
+  }
+}
+on('check-update', 'click', async e => {
+  e.target.disabled = true; $('update-feedback').textContent = '正在检查 GitHub 正式发布版本…';
+  try { await api('/api/updates/check', 'POST', {}); $('update-feedback').textContent = '版本检查完成，请选择需要升级的服务。'; await refreshUpdates(); }
+  catch (err) { $('update-feedback').textContent = err.message; }
+  finally { e.target.disabled = false; }
+});
 async function changePassword() {
   const p = await passwordDialog('修改登录密码', true); if (!p) return; await api('/api/password', 'PUT', p); me = null; location.reload();
 }
@@ -304,6 +359,6 @@ on('ssh-dialog', 'close', () => show('ssh-feedback', false));
 on('ssh-form', 'input', () => { show('ssh-result', false); show('ssh-feedback', false); });
 setInterval(async () => {
   if (refreshBusy || document.hidden) return; refreshBusy = true;
-  try { if (config.mode === 'node') await refreshNode(); else if (me) { await Promise.all([adminPage ? refreshAdminNodes() : refreshNodes(), refreshAnnouncements()]); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else notice(e.message, true); } finally { refreshBusy = false; }
+  try { if (config.mode === 'node') await refreshNode(); else if (me) { await Promise.all([adminPage ? refreshAdminNodes() : refreshNodes(), refreshAnnouncements(), ...(adminPage ? [refreshUpdates()] : [])]); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else if (adminPage && $('tab-updates')?.getAttribute('aria-selected') === 'true') { $('update-feedback').textContent = '暂时无法连接控制台；升级重启期间会自动重试。'; } else notice(e.message, true); } finally { refreshBusy = false; }
 }, 5000);
 boot().catch(e => { show('loading', false); notice(e.message, true); });

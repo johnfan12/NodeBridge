@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"nodebridge/internal/updater"
+
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -28,6 +30,8 @@ type Invite struct {
 }
 
 type Node struct {
+	Version          string    `json:"version,omitempty"`
+	Arch             string    `json:"arch,omitempty"`
 	ForwardingPaused bool      `json:"forwarding_paused,omitempty"`
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
@@ -61,17 +65,18 @@ type Announcement struct {
 }
 
 type State struct {
-	LegacyTCPProxies json.RawMessage    `json:"proxies,omitempty"`
-	ForwardingPaused bool               `json:"forwarding_paused,omitempty"`
-	Version          int                `json:"version"`
-	Users            map[string]User    `json:"users"`
-	Sessions         map[string]Session `json:"sessions"`
-	Invites          map[string]Invite  `json:"invites"`
-	Nodes            map[string]Node    `json:"nodes"`
-	Audit            []Audit            `json:"audit"`
-	Announcements    []Announcement     `json:"announcements,omitempty"`
-	AllowRegister    bool               `json:"allow_register"`
-	Daily            map[string]Daily   `json:"daily"`
+	UpdateTasks      map[string]updater.Status `json:"update_tasks,omitempty"`
+	LegacyTCPProxies json.RawMessage           `json:"proxies,omitempty"`
+	ForwardingPaused bool                      `json:"forwarding_paused,omitempty"`
+	Version          int                       `json:"version"`
+	Users            map[string]User           `json:"users"`
+	Sessions         map[string]Session        `json:"sessions"`
+	Invites          map[string]Invite         `json:"invites"`
+	Nodes            map[string]Node           `json:"nodes"`
+	Audit            []Audit                   `json:"audit"`
+	Announcements    []Announcement            `json:"announcements,omitempty"`
+	AllowRegister    bool                      `json:"allow_register"`
+	Daily            map[string]Daily          `json:"daily"`
 }
 
 func (s *State) Record(actor, action, target string) {
