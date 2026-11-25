@@ -39,10 +39,11 @@ type Node struct {
 	session    *yamux.Session
 	updates    *updater.Manager
 	version    string
+	telemetry  *telemetry.Collector
 }
 
 func NewNode(ctx context.Context, dir string, c Config) *Node {
-	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), reportWake: make(chan struct{}, 1), streams: map[*yamux.Stream]net.Conn{}, port: c.PublicPort, updates: updater.NewManager("node", dir), version: buildinfo.Version}
+	return &Node{config: c, dir: dir, ctx: ctx, wake: make(chan struct{}, 1), reportWake: make(chan struct{}, 1), streams: map[*yamux.Stream]net.Conn{}, port: c.PublicPort, updates: updater.NewManager("node", dir), version: buildinfo.Version, telemetry: telemetry.NewCollector()}
 }
 
 func InitNode(dir, listen string, sshPort int) (Config, error) {
@@ -277,7 +278,7 @@ func (n *Node) report(ctx context.Context, c Config, session *yamux.Session) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
-		s := telemetry.Collect(ctx, c.SSHPort)
+		s := n.telemetry.Collect(ctx, c.SSHPort)
 		s.Version = n.version
 		s.UpdaterReady = n.updates.Ready()
 		s.Update = n.updates.Status()

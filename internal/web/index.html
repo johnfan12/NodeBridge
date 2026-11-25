@@ -30,13 +30,17 @@
         <details id="announcement-history" class="announcement-history" hidden><summary id="announcement-history-title">较早公告</summary><div id="announcement-older"></div></details>
       </section>
       <section class="workspace"><div class="workspace-head"><h2>服务器</h2><span id="node-summary" class="muted"></span></div><div id="nodes" class="node-list"></div></section>
-      <dialog id="ssh-dialog" class="connection-dialog" aria-labelledby="ssh-title">
-        <div class="dialog-head"><h2 id="ssh-title">SSH 连接</h2><button id="ssh-close" type="button" class="secondary">关闭</button></div>
-        <div id="ssh-feedback" role="status" aria-live="polite" hidden></div>
-        <form id="ssh-form"><label>服务器<select name="node" required></select></label><label>Linux 用户名<input name="username" placeholder="例如 fan" required maxlength="64" pattern="[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}" autocomplete="username"></label><button type="submit">生成连接命令</button></form>
-        <div id="ssh-result" hidden><div class="copy-row"><code id="ssh-command"></code><button id="copy-ssh" type="button" class="secondary">复制</button></div></div>
-      </dialog>
     </section>
+    <section id="server-detail" aria-labelledby="server-detail-title" hidden>
+      <button id="server-detail-back" type="button" class="secondary back-button">← 返回服务器列表</button>
+      <div id="server-detail-content"></div>
+    </section>
+    <dialog id="ssh-dialog" class="connection-dialog" aria-labelledby="ssh-title">
+      <div class="dialog-head"><h2 id="ssh-title">SSH 连接</h2><button id="ssh-close" type="button" class="secondary">关闭</button></div>
+      <div id="ssh-feedback" role="status" aria-live="polite" hidden></div>
+      <form id="ssh-form"><label>服务器<select name="node" required></select></label><label>Linux 用户名<input name="username" placeholder="例如 fan" required maxlength="64" pattern="[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}" autocomplete="username"></label><button type="submit">生成连接命令</button></form>
+      <div id="ssh-result" hidden><div class="copy-row"><code id="ssh-command"></code><button id="copy-ssh" type="button" class="secondary">复制</button></div></div>
+    </dialog>
   </main>
 </body>
 </html>

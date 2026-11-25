@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"nodebridge/internal/telemetry"
 	"nodebridge/internal/updater"
 
 	bolt "go.etcd.io/bbolt"
@@ -30,15 +31,16 @@ type Invite struct {
 }
 
 type Node struct {
-	Version          string    `json:"version,omitempty"`
-	Arch             string    `json:"arch,omitempty"`
-	ForwardingPaused bool      `json:"forwarding_paused,omitempty"`
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	CredentialHash   string    `json:"credential_hash,omitempty"`
-	Port             int       `json:"port"`
-	Created          time.Time `json:"created"`
-	LastSeen         time.Time `json:"last_seen"`
+	GPUSnapshot      *telemetry.GPUSnapshot `json:"gpu_snapshot,omitempty"`
+	Version          string                 `json:"version,omitempty"`
+	Arch             string                 `json:"arch,omitempty"`
+	ForwardingPaused bool                   `json:"forwarding_paused,omitempty"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	CredentialHash   string                 `json:"credential_hash,omitempty"`
+	Port             int                    `json:"port"`
+	Created          time.Time              `json:"created"`
+	LastSeen         time.Time              `json:"last_seen"`
 }
 
 type Daily struct {

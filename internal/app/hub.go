@@ -346,6 +346,7 @@ func (h *Hub) nodes(w http.ResponseWriter, r *http.Request, u store.User) {
 		row["last_seen"] = n.LastSeen
 		row["version"] = n.Version
 		row["arch"] = n.Arch
+		row["gpu_snapshot"] = n.GPUSnapshot
 		history := make([]store.Daily, 0, 30)
 		for days := 29; days >= 0; days-- {
 			date := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")

@@ -216,6 +216,10 @@ func (h *Hub) nodeStatus(id string, session *yamux.Session, s *yamux.Stream) {
 	if len(status.Version) > 64 || len(status.Arch) > 20 {
 		return
 	}
+	snapshot := status.Snapshot()
+	if snapshot != nil && (snapshot.At.After(time.Now().Add(time.Minute)) || len(snapshot.GPUs) > 128 || len(snapshot.Error) > 1024) {
+		return
+	}
 	h.mu.Lock()
 	valid := false
 	if l := h.live[id]; l != nil && l.session == session {
@@ -234,6 +238,9 @@ func (h *Hub) nodeStatus(id string, session *yamux.Session, s *yamux.Stream) {
 			return nil
 		}
 		needsSave = status.Version != "" && (n.Version != status.Version || n.Arch != status.Arch)
+		if snapshot != nil && (n.GPUSnapshot == nil || snapshot.At.After(n.GPUSnapshot.At)) {
+			needsSave = true
+		}
 		if task, ok := state.UpdateTasks[id]; ok && task.ID == status.Update.ID && task.Phase != status.Update.Phase {
 			needsSave = true
 		}
@@ -250,8 +257,11 @@ func (h *Hub) nodeStatus(id string, session *yamux.Session, s *yamux.Stream) {
 		if status.Version != "" && (n.Version != status.Version || n.Arch != status.Arch) {
 			n.Version = status.Version
 			n.Arch = status.Arch
-			state.Nodes[id] = n
 		}
+		if snapshot != nil && (n.GPUSnapshot == nil || snapshot.At.After(n.GPUSnapshot.At)) {
+			n.GPUSnapshot = snapshot
+		}
+		state.Nodes[id] = n
 		if task, ok := state.UpdateTasks[id]; ok && task.ID == status.Update.ID && task.Phase != status.Update.Phase {
 			state.UpdateTasks[id] = status.Update
 			if !updater.Busy(status.Update.Phase) {
