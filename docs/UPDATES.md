@@ -15,24 +15,24 @@
 
 v0.4.1 及更旧程序不支持升级指令。Hub 和每台 node 必须先安装 v0.5.0 或更新版本，由 root 安装脚本配置独立更新执行器；之后的新版本可在面板完成升级。没有执行器的手动运行部署只展示版本，按钮禁用。
 
-VPS 上沿用当前的 HTTPS 地址。已经切换到域名 443 的部署可以执行：
+普通升级自动沿用已有地址、配对与端口，无需 URL 或 `--reconfigure` 参数。VPS 执行：
 
 ```bash
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh \
-  | sudo bash -s -- hub --public-url https://你的域名 --reconfigure
+  | sudo bash -s -- hub
 ```
 
-已配对节点如果还使用临时的 `域名:9443`，首次升级时同时迁移到域名 443：
+每台已配对节点使用后台任务更新：
 
 ```bash
 sudo systemd-run --unit=nodebridge-node-bootstrap --collect /bin/bash -c '
 set -euo pipefail
 curl --connect-timeout 15 --max-time 180 --retry 3 -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh |
-  bash -s -- node --hub-url https://你的域名 --tls-mode auto --reconfigure
+  bash -s -- node
 '
 ```
 
-把示例域名替换为真实域名。已配对且地址无须改变时，使用普通 `install.sh node` 更新。尚未配对的节点普通安装 node 后，用新版 Hub 新生成的链接配对。初次升级仍需安装机能下载 Release；网络不稳定时，可以在可联网机器下载对应架构包及 SHA256SUMS，校验后通过已有 SSH 传到节点，再离线运行：
+需要更换域名或从临时的 `域名:9443` 迁移到域名 443 时，另按[地址迁移说明](NGINX.md#将临时的-9443-入口切回域名-443)修改连接地址。尚未配对的节点普通安装 node 后，用新版 Hub 新生成的链接配对。初次升级仍需安装机能下载 Release；网络不稳定时，可以在可联网机器下载对应架构包及 SHA256SUMS，校验后通过已有 SSH 传到节点，再离线运行：
 
 ```bash
 # 已校验并解压安装包后执行；后台任务独立于当前 SSH 会话。

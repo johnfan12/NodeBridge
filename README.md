@@ -1,6 +1,6 @@
 # NodeBridge
 
-**Best Approach to SSH Access Behind NAT.**
+**Deployment Best Practices · 部署最佳实践**
 
 通过一台 VPS，连接没有公网 IP 的服务器。安装后复制一次配对链接，即可获得固定的公网 SSH 端口，并在 Web 面板集中管理节点与版本。
 
@@ -119,14 +119,14 @@ nodebridge pair
 
 安装阶段会重启服务并断开对应 SSH 会话，Hub 升级影响全部节点。账号、配对、固定端口、暂停状态和证书保留。建议在没有 SSH 任务时升级。
 
-### 命令升级与旧地址迁移
+### 命令升级
 
-旧版本没有面板升级能力，或页面提示未安装更新执行器时，先在两端各执行一次下面的安装命令。此流程也可将临时使用的 `域名:9443` 迁移回域名的 443 入口，保留配对与端口。
+普通升级自动读取已有配置，**无需填写 URL，也无需添加 `--reconfigure`**。旧版本没有面板升级能力，或页面提示未安装更新执行器时，先在两端各执行一次以下命令。
 
-**VPS：** 先确认 Nginx 已按第 2 步配置，再执行：
+**VPS：**
 
 ```bash
-curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub --public-url https://ssh.example.com --reconfigure
+curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh | sudo bash -s -- hub
 ```
 
 **每台已配对节点：** 用独立后台任务更新，避免 SSH 断开时终止安装：
@@ -135,7 +135,7 @@ curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/inst
 sudo systemd-run --unit=nodebridge-node-bootstrap --collect /bin/bash -c '
 set -euo pipefail
 curl -fsSL https://github.com/johnfan12/NodeBridge/releases/latest/download/install.sh |
-  bash -s -- node --hub-url https://ssh.example.com --tls-mode auto --reconfigure
+  bash -s -- node
 '
 ```
 
@@ -146,6 +146,10 @@ sudo journalctl -u nodebridge-node-bootstrap -n 80 --no-pager
 ```
 
 未配对节点按第 4 步安装即可。下载失败、离线升级与面板更新排障见[升级说明](docs/UPDATES.md)。
+
+### 修改连接地址
+
+仅在更换域名，或将旧的 `域名:9443` 切换到域名 443 入口时，才需要显式修改地址：VPS 安装命令在 `hub` 后追加 `--public-url https://ssh.example.com --reconfigure`；节点安装命令在 `node` 后追加 `--hub-url https://ssh.example.com --tls-mode auto --reconfigure`。先确认 Nginx 已正确配置，具体步骤见 [地址迁移说明](docs/NGINX.md#将临时的-9443-入口切回域名-443)。
 
 ## 卸载
 
