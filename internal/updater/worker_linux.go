@@ -45,32 +45,39 @@ func NewWorker(mode string) *Worker {
 	return w
 }
 
+// Both the unprivileged readiness probe and root worker check the same layout.
+func checkInstallPaths(data, state, target, mode string) error {
+	for _, path := range []string{data, state, filepath.Dir(target), target} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if path == target && !info.Mode().IsRegular() || path != target && !info.IsDir() {
+			return fmt.Errorf("%s 类型不正确，请检查实际安装路径", path)
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != 0 || info.Mode().Perm()&0022 != 0 {
+			return fmt.Errorf("%s 需要 root 所有且组和其他用户不可写（当前权限 %04o）", path, info.Mode().Perm())
+		}
+	}
+	dir := filepath.Join(data, mode)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s 必须为目录", dir)
+	}
+	return nil
+}
+
 func (w *Worker) Run(ctx context.Context) (result error) {
 	if (w.Mode != "hub" && w.Mode != "node") || (w.RequireRoot && os.Geteuid() != 0) {
 		return errors.New("更新执行器只允许 root 运行固定的 hub/node 模式")
 	}
 	if w.RequireRoot {
-		for _, path := range []string{w.DataRoot, w.StateRoot, filepath.Dir(w.Target)} {
-			info, err := os.Lstat(path)
-			if err != nil {
-				return err
-			}
-			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || stat.Uid != 0 || !info.IsDir() || info.Mode().Perm()&0022 != 0 {
-				return errors.New("更新器的父目录必须由 root 持有且不可被其他用户写入")
-			}
-		}
-		info, err := os.Lstat(filepath.Join(w.DataRoot, w.Mode))
-		if err != nil || !info.IsDir() {
-			return errors.New("更新数据目录无效")
-		}
-		info, err = os.Lstat(w.Target)
-		if err != nil {
+		if err := checkInstallPaths(w.DataRoot, w.StateRoot, w.Target, w.Mode); err != nil {
 			return err
-		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 {
-			return errors.New("程序必须由 root 持有且不可被其他用户写入")
 		}
 	}
 	lock, err := os.OpenFile(w.LockPath, os.O_CREATE|os.O_RDWR, 0600)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -45,27 +46,40 @@ type Manager struct {
 	mu        sync.Mutex
 	Mode, Dir string
 	StateDir  string
-	Enabled   func() bool
+	Check     func() error
 }
 
 func NewManager(mode, dir string) *Manager {
 	m := &Manager{Mode: mode, Dir: dir, StateDir: filepath.Join(StateRoot, mode)}
-	m.Enabled = func() bool {
+	m.Check = func() error {
 		if filepath.Clean(dir) != "/var/lib/nodebridge/"+mode {
-			return false
+			return fmt.Errorf("面板升级需要标准数据目录 /var/lib/nodebridge/%s", mode)
 		}
-		_, err := os.Stat("/etc/systemd/system/nodebridge-update-" + mode + ".path")
-		if err != nil {
-			return false
+		unit := "nodebridge-update-" + mode + ".path"
+		if _, err := os.Stat("/etc/systemd/system/" + unit); os.IsNotExist(err) {
+			return fmt.Errorf("缺少 %s，请运行新版安装命令", unit)
+		} else if err != nil {
+			return err
+		}
+		if err := checkInstallPaths("/var/lib/nodebridge", StateRoot, "/usr/local/bin/nodebridge", mode); err != nil {
+			return err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		return exec.CommandContext(ctx, "/bin/systemctl", "is-active", "--quiet", "nodebridge-update-"+mode+".path").Run() == nil
+		if err := exec.CommandContext(ctx, "/bin/systemctl", "is-active", "--quiet", unit).Run(); err != nil {
+			return fmt.Errorf("监听器 %s 未就绪，请检查对应更新服务日志", unit)
+		}
+		return nil
 	}
 	return m
 }
 
-func (m *Manager) Ready() bool { return m.Enabled != nil && m.Enabled() }
+func (m *Manager) Readiness() (bool, string) {
+	if err := m.Check(); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+}
 
 func (m *Manager) Status() Status {
 	var s Status
@@ -80,8 +94,8 @@ func (m *Manager) Status() Status {
 func (m *Manager) Queue(r Request, current string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.Ready() {
-		return errors.New("请先用新版安装脚本启用本机更新执行器")
+	if err := m.Check(); err != nil {
+		return err
 	}
 	if !ValidRequest(r) || !Newer(r.Version, current) {
 		return errors.New("只允许更新到更高的正式版本")

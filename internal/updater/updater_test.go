@@ -132,7 +132,7 @@ func TestManagerQueueAndDuplicateProtection(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManager("node", dir)
 	m.StateDir = t.TempDir()
-	m.Enabled = func() bool { return true }
+	m.Check = func() error { return nil }
 	r := Request{ID: strings.Repeat("a", 43), Version: "v0.6.0"}
 	if err := m.Queue(r, "v0.5.0"); err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestManagerQueueAndDuplicateProtection(t *testing.T) {
 	if err := m.Queue(Request{ID: r.ID, Version: "v0.4.1"}, "v0.5.0"); err == nil {
 		t.Fatal("downgrade accepted")
 	}
-	m.Enabled = func() bool { return false }
+	m.Check = func() error { return os.ErrPermission }
 	if err := m.Queue(r, "v0.5.0"); err == nil {
 		t.Fatal("unmanaged service accepted update")
 	}
@@ -228,5 +228,42 @@ func TestWorkerRejectsRequestInjection(t *testing.T) {
 	os.Symlink("/etc/passwd", path)
 	if err := w.Run(context.Background()); err == nil {
 		t.Fatal("root updater followed a request symlink")
+	}
+}
+
+func TestUpgradeDirectoryPermissions(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root or a root-mapped user namespace")
+	}
+	base := t.TempDir()
+	data, state, bin := filepath.Join(base, "data"), filepath.Join(base, "state"), filepath.Join(base, "bin")
+	for _, dir := range []string{filepath.Join(data, "node"), state, bin} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join(bin, "nodebridge")
+	if err := os.WriteFile(target, nil, 0755); err != nil {
+		t.Fatal(err)
+	}
+	verify := func() {
+		t.Helper()
+		if err := checkInstallPaths(data, state, target, "node"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	verify()
+	for _, path := range []string{data, state, bin, target} {
+		if err := os.Chmod(path, 0775); err != nil {
+			t.Fatal(err)
+		}
+		err := checkInstallPaths(data, state, target, "node")
+		if err == nil || !strings.Contains(err.Error(), path) {
+			t.Fatalf("expected offending path %s, got %v", path, err)
+		}
+		if err := os.Chmod(path, 0755); err != nil {
+			t.Fatal(err)
+		}
+		verify()
 	}
 }

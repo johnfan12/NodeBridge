@@ -88,3 +88,22 @@ sudo systemctl enable --now nodebridge-update-node.path
 ```
 
 卸载脚本会一并停用对应更新执行器。`--purge` 同时删除其状态与旧二进制备份；保留另一模式的执行器与数据。
+
+## 修复更新目录权限
+
+v0.6.1 安装器会在下载前检查共享目录 `/usr/local/bin`。更新器要求程序和三个父目录由 root 所有，且组和其他用户均无写权限。在节点或 VPS 上查看实际路径和权限：
+
+```bash
+sudo stat -c '%F %U:%G %a %n' /usr/local/bin /var/lib/nodebridge /var/lib/nodebridge-updater /usr/local/bin/nodebridge
+```
+
+安装脚本设置 NodeBridge 专用目录的权限。如果共享目录是组可写的实际目录，例如 `root:staff 2775`，先确认允许收紧该机器的共享写入策略，再只修改这个目录：
+
+```bash
+sudo chown root -- /usr/local/bin
+sudo chmod go-w -- /usr/local/bin
+```
+
+不要递归更改所有者。节点的 `/var/lib/nodebridge/node` 和 Hub 的 `/var/lib/nodebridge/hub` 需要由服务用户写入。若机器必须保留共享目录的组写入，请先由系统管理员规划安装路径。
+
+旧执行器已经触发 `unit-start-limit-hit` 的机器，修正权限后按 README 的命令升级一次。安装器会清除已失败的更新单元计数，并在报告成功前验证监听器就绪。若要继续原先的面板任务，可先修正日志指明的路径，再按上节命令恢复监听；已有请求可能立即执行。安装重启会断开相应 SSH 会话。

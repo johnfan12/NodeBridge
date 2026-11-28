@@ -74,22 +74,24 @@ func (h *Hub) updateOverview(w http.ResponseWriter, r *http.Request, u store.Use
 	for _, n := range nodes {
 		version, arch := n.Version, n.Arch
 		ready, online := false, false
+		issue := ""
 		job := tasks[n.ID]
 		if l := h.live[n.ID]; l != nil {
 			online = l.session != nil && !l.session.IsClosed() && !l.seen.IsZero() && time.Since(l.seen) < 45*time.Second
 			if online {
 				version = l.status.Version
 				arch = l.status.Arch
-				ready = l.status.UpdaterReady
+				ready, issue = l.status.UpdaterReady, l.status.UpdaterIssue
 				if l.status.Update.ID != "" && (job.ID == "" || job.ID == l.status.Update.ID) {
 					job = l.status.Update
 				}
 			}
 		}
-		rows = append(rows, map[string]any{"id": n.ID, "name": n.Name, "version": version, "arch": arch, "online": online, "updater_ready": ready, "update": job})
+		rows = append(rows, map[string]any{"id": n.ID, "name": n.Name, "version": version, "arch": arch, "online": online, "updater_ready": ready, "updater_issue": issue, "update": job})
 	}
 	h.mu.Unlock()
-	respond(w, 200, map[string]any{"latest": latest, "hub": map[string]any{"version": h.version, "arch": runtime.GOARCH, "updater_ready": h.updates.Ready(), "update": hubStatus}, "nodes": rows})
+	ready, issue := h.updates.Readiness()
+	respond(w, 200, map[string]any{"latest": latest, "hub": map[string]any{"version": h.version, "arch": runtime.GOARCH, "updater_ready": ready, "updater_issue": issue, "update": hubStatus}, "nodes": rows})
 }
 
 func (h *Hub) startUpdate(w http.ResponseWriter, r *http.Request, u store.User) {

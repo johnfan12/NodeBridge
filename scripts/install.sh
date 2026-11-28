@@ -35,6 +35,36 @@ while (($#)); do
   esac
 done
 
+# Check the shared install directory before downloading or changing any service.
+# Its group ownership and write policy may be intentional on multi-user hosts.
+check_root_path() {
+  local path=$1 owner perms
+  owner=$(stat -c %u -- "$path")
+  perms=$(stat -c %a -- "$path")
+  if [[ $owner != 0 ]] || (( (8#$perms & 022) != 0 )); then
+    echo "$path 的 uid=$owner 权限=$perms。面板升级要求 root 所有且组和其他用户不可写。" >&2
+    echo "请确认此路径的共享策略后再执行：sudo chown root -- '$path' && sudo chmod go-w -- '$path'" >&2
+    return 1
+  fi
+}
+target=/usr/local/bin/nodebridge
+dir=/var/lib/nodebridge/$mode
+if [[ ! -d /usr/local/bin || -L /usr/local/bin ]]; then
+  echo '/usr/local/bin 必须是实际目录，请检查安装路径。' >&2
+  exit 1
+fi
+check_root_path /usr/local/bin
+for path in /var/lib/nodebridge "$dir" /var/lib/nodebridge-updater "/var/lib/nodebridge-updater/$mode" "/var/lib/nodebridge-updater/$mode/private"; do
+  if [[ -L $path || ( -e $path && ! -d $path ) ]]; then
+    echo "$path 必须是实际目录，请检查安装路径。" >&2
+    exit 1
+  fi
+done
+if [[ -L $target || ( -e $target && ! -f $target ) ]]; then
+  echo "$target 必须是普通文件，请检查安装路径。" >&2
+  exit 1
+fi
+
 script_dir=''
 if [[ -n ${BASH_SOURCE[0]:-} ]]; then
   script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -78,14 +108,15 @@ exec 9>/run/nodebridge-update.lock
 umask "$previous_umask"
 flock -x 9
 
-target=/usr/local/bin/nodebridge
-dir=/var/lib/nodebridge/$mode
 if ! id nodebridge >/dev/null 2>&1; then useradd --system --home-dir /var/lib/nodebridge --shell /usr/sbin/nologin nodebridge; fi
 install -d -m 755 -o root -g root /var/lib/nodebridge
 install -d -m 700 -o nodebridge -g nodebridge "$dir"
 if [[ $(readlink -f "$binary") != "$target" ]]; then
-  install -m 755 "$binary" "$target.new"
-  mv -f "$target.new" "$target"
+  staged=$(mktemp /usr/local/bin/.nodebridge-XXXXXXXX)
+  install -o root -g root -m 755 "$binary" "$staged"
+  mv -fT "$staged" "$target"
+else
+  check_root_path "$target"
 fi
 
 # Validate/init before replacing service configuration. The service itself runs unprivileged.
@@ -153,7 +184,14 @@ Unit=nodebridge-update-$mode.service
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
+for unit in "nodebridge-update-$mode.service" "nodebridge-update-$mode.path"; do
+  if systemctl is-failed --quiet "$unit"; then systemctl reset-failed "$unit"; fi
+done
 systemctl enable --now "nodebridge-update-$mode.path"
+if ! runuser -u nodebridge -- /bin/systemctl is-active --quiet "nodebridge-update-$mode.path"; then
+  echo "nodebridge-update-$mode.path 未就绪，请查看 journalctl -u nodebridge-update-$mode.service" >&2
+  exit 1
+fi
 systemctl enable "nodebridge-$mode.service"
 systemctl restart "nodebridge-$mode.service"
 systemctl is-active --quiet "nodebridge-$mode.service"

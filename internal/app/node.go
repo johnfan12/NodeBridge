@@ -136,7 +136,8 @@ func (n *Node) Handler() http.Handler {
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		respond(w, 200, map[string]any{"version": n.version, "updater_ready": n.updates.Ready(), "update": n.updates.Status(), "paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused})
+		ready, issue := n.updates.Readiness()
+		respond(w, 200, map[string]any{"version": n.version, "updater_ready": ready, "updater_issue": issue, "update": n.updates.Status(), "paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused})
 	})
 	mux.HandleFunc("POST /api/pair", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -280,7 +281,7 @@ func (n *Node) report(ctx context.Context, c Config, session *yamux.Session) {
 	for {
 		s := n.telemetry.Collect(ctx, c.SSHPort)
 		s.Version = n.version
-		s.UpdaterReady = n.updates.Ready()
+		s.UpdaterReady, s.UpdaterIssue = n.updates.Readiness()
 		s.Update = n.updates.Status()
 		n.mu.Lock()
 		s.ForwardingPaused = n.config.ForwardingPaused

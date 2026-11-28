@@ -30,6 +30,7 @@ type GPU struct {
 
 type Status struct {
 	Version          string         `json:"version,omitempty"`
+	UpdaterIssue     string         `json:"updater_issue,omitempty"`
 	UpdaterReady     bool           `json:"updater_ready,omitempty"`
 	Update           updater.Status `json:"update,omitempty"`
 	ForwardingPaused bool           `json:"forwarding_paused,omitempty"`

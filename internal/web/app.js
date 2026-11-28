@@ -397,7 +397,7 @@ function updateRow(item, latest, hub = false) {
   const job = item.update || {}, busy = updateBusy(job.phase);
   if (job.phase) info.append(el('p', `${updatePhases[job.phase] || job.phase}${job.version ? ` · ${job.version}` : ''}${job.message ? `：${job.message}` : ''}`, job.phase === 'failed' || job.phase === 'rolled_back' ? 'update-error' : 'muted'));
   if (!item.version) info.append(el('p', '版本尚未上报；旧版节点需先运行一次新版安装命令。', 'muted'));
-  else if (!item.updater_ready && (hub || item.online)) info.append(el('p', '先运行一次新版安装命令启用面板升级，之后可在此管理。', 'muted'));
+  else if (!item.updater_ready && (hub || item.online)) info.append(el('p', item.updater_issue || '执行器未就绪，请检查更新监听器状态和更新服务日志。', 'muted'));
   else if (!hub && !item.online) info.append(el('p', '节点上线后可执行升级。', 'muted'));
   const canUpdate = item.updater_ready && (hub || item.online) && newerVersion(latest.version, item.version) && !busy;
   const action = button(busy ? '升级进行中…' : '升级', async () => {

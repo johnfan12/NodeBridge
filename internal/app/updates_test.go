@@ -27,7 +27,7 @@ type updateRoundTrip func(*http.Request) (*http.Response, error)
 
 func (f updateRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func enableTestUpdates(m *updater.Manager) { m.Enabled = func() bool { return true } }
+func enableTestUpdates(m *updater.Manager) { m.Check = func() error { return nil } }
 
 func updateFixture(t *testing.T) (*fixture, *Node, string) {
 	t.Helper()
