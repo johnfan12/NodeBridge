@@ -147,3 +147,7 @@ sudo bash uninstall.sh node --purge
 ## SSH 与服务转发分工
 
 从 v0.3.0 起 NodeBridge 只提供 SSH；Overleaf/TCP 使用独立 PortBridge。两个项目分别更新、暂停和卸载，安装或卸载其中一个不操作另一个的服务与数据。迁移现有 v0.2.0 额外服务前，请按 [迁移说明](MIGRATION.md#overleaftcp-迁移到-portbridge)先验证 PortBridge，再升级 NodeBridge；升级后旧额外服务端口不再被 NodeBridge 监听。
+
+## Overleaf 域名注册
+
+检查 `systemctl status nodebridge-sites.socket` 和 `sudo nginx -t`。注册使用 Ubuntu/Debian 的 `/etc/nginx/conf.d/nodebridge-域名.conf` 和 Certbot webroot；保留 80 端口和 Certbot 自动续期定时器。申请失败时，已写入的 HTTP 验证站点可用于重试。节点端可通过 `curl -I http://127.0.0.1:80/` 检查本机服务。回环端口仅适用于受信任的 VPS 本机环境。永久卸载 Hub 前请撤下对应 Nginx 站点并重新加载，避免该域名继续指向已释放的端口。

@@ -26,6 +26,9 @@ import (
 )
 
 type Node struct {
+	siteMu     sync.Mutex
+	siteOnline bool
+	siteCancel context.CancelFunc
 	mu         sync.Mutex
 	config     Config
 	dir        string
@@ -139,6 +142,7 @@ func (n *Node) Handler() http.Handler {
 		ready, issue := n.updates.Readiness()
 		respond(w, 200, map[string]any{"version": n.version, "updater_ready": ready, "updater_issue": issue, "update": n.updates.Status(), "paired": n.config.NodeID != "", "online": n.online, "error": n.error, "hub_url": n.config.HubURL, "node_id": n.config.NodeID, "ssh_port": n.config.SSHPort, "port": n.port, "forwarding_paused": n.config.ForwardingPaused})
 	})
+	n.siteRoutes(mux)
 	mux.HandleFunc("POST /api/pair", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			Link string `json:"link"`
@@ -170,6 +174,11 @@ func (n *Node) Handler() http.Handler {
 }
 
 func (n *Node) Run() {
+	n.siteMu.Lock()
+	if c, err := n.loadSite(); err == nil {
+		n.startSite(c)
+	}
+	n.siteMu.Unlock()
 	backoff := time.Second
 	for {
 		n.mu.Lock()

@@ -43,6 +43,9 @@ func run() error {
 		return nil
 	}
 	mode := os.Args[1]
+	if mode == "site-worker" {
+		return app.SiteWorker(os.Stdin, os.Stdout)
+	}
 	if mode == "update-worker" {
 		fs := flag.NewFlagSet(mode, flag.ContinueOnError)
 		selected := fs.String("mode", "", "固定服务模式 hub/node")

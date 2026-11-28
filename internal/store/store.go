@@ -66,7 +66,17 @@ type Announcement struct {
 	Created time.Time `json:"created"`
 }
 
+type Site struct {
+	Port           int
+	Domain         string
+	Ready          bool
+	InviteHash     string
+	Expires        time.Time
+	CredentialHash string
+}
 type State struct {
+	Sites map[string]Site `json:"sites,omitempty"`
+
 	UpdateTasks      map[string]updater.Status `json:"update_tasks,omitempty"`
 	LegacyTCPProxies json.RawMessage           `json:"proxies,omitempty"`
 	ForwardingPaused bool                      `json:"forwarding_paused,omitempty"`

@@ -19,6 +19,7 @@
       <section class="workspace">
         <div class="admin-tabs" role="tablist" aria-label="管理功能">
           <button id="tab-servers" role="tab" type="button" aria-selected="true" aria-controls="panel-servers" data-tab="servers">服务器</button>
+          <button role="tab" type="button" aria-selected="false" aria-controls="panel-sites" data-tab="sites" tabindex="-1">端口转发管理</button>
           <button id="tab-accounts" role="tab" type="button" aria-selected="false" aria-controls="panel-accounts" data-tab="accounts" tabindex="-1">账号</button>
           <button id="tab-announcements" role="tab" type="button" aria-selected="false" aria-controls="panel-announcements" data-tab="announcements" tabindex="-1">公告</button>
           <button id="tab-updates" role="tab" type="button" aria-selected="false" aria-controls="panel-updates" data-tab="updates" tabindex="-1">版本更新</button>
@@ -30,6 +31,7 @@
           <div id="admin-nodes"></div>
           <details class="workspace-section service-settings"><summary>全局 SSH 转发设置</summary><div id="hub-forwarding" class="forwarding-controls"></div><p class="muted">暂停将断开全部服务器的 SSH 会话，Web 控制台继续可用。</p></details>
         </section>
+        <section id="panel-sites" role="tabpanel" hidden><div class="workspace-body"><h2>端口转发管理</h2><form id="site-register"><label>已解析到 VPS 的域名<input name="domain" placeholder="overleaf.example.com" required></label><button>注册</button></form><p id="site-progress" role="status"></p><div id="sites"></div><div id="site-invite-result" hidden><label>节点配对链接（15 分钟内有效）<textarea id="site-link" readonly></textarea></label><button id="site-copy">复制链接</button></div></div></section>
         <section id="panel-accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
           <div class="workspace-head"><h2>账号管理</h2><div class="actions"><label class="check"><input id="allow-register" type="checkbox">允许自助注册</label><button id="user-toggle" type="button" aria-expanded="false" aria-controls="user-section">创建账号</button></div></div>
           <section id="user-section" class="workspace-section inline-form" hidden><form id="user-form" class="row"><label>用户名<input name="username" required maxlength="64"></label><label>初始密码<input name="password" type="password" required minlength="10" maxlength="72" autocomplete="new-password"></label><label class="check"><input name="admin" type="checkbox">管理员</label><button>保存账号</button></form></section>

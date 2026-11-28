@@ -90,3 +90,7 @@ NodeBridge v0.2.0 曾包含额外 TCP 代理；从 v0.3.0 起分工调整为 Nod
 6. 如需沿用旧 TCP 公网端口：先停止 NodeBridge 中原代理或升级至 SSH-only 版本，确保旧端口已释放；扩展 PortBridge 端口池后在创建转发时指定该端口。已创建的新端口代理需删除后重建，不会自动换端口。重建会断开该服务连接。
 
 新 NodeBridge 不会激活旧 TCP 数据；旧配置的 `allowed_tcp_ports`/`tcp_forwarding_paused` 与 hub 的 `proxies` 元数据保留，仅用于人工迁移参考。不要直接降级到 v0.2.0，因为旧版本可能重新开放这些代理。回滚需停服、恢复升级前二进制和整套备份，并解决与 PortBridge 的端口冲突。
+
+## 将独立 PortBridge 迁回 NodeBridge
+
+在新版 Hub 注册独立域名，在新版节点的端口转发页使用新的域名配对链接。验证域名访问后再停用旧代理。历史 TCP 记录保持禁用。若旧站点已经占用同名域名，需先迁出该 Nginx 站点配置。

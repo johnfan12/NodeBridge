@@ -111,6 +111,14 @@ nodebridge pair
 
 回到 VPS 面板，等待节点显示 **SSH 就绪**，点击 **SSH 连接**，填写本地服务器已有的 Linux 用户名，复制命令连接。公网 SSH 端口自动分配；认证使用该 Linux 用户的密码或 SSH 密钥，面板账号不等于 Linux 账号。
 
+## 通过域名转发 Overleaf
+
+1. 将独立域名（例如 `overleaf.example.com`）直接解析到 Hub VPS，确保 80 和 443 可访问。已有的 SSH 控制台继续使用自己的域名。
+2. VPS 安装 Nginx 和 Certbot（第 2 步）。首次启用此功能，使用包含此功能的安装脚本安装 Hub，以创建 `nodebridge-sites.socket`。仅替换二进制的面板升级无法创建新的 systemd 单元。
+3. 在 **管理页面 → 端口转发管理** 输入域名并点击 **注册**。Hub 保留一个 41000–41999 范围内的 VPS 回环端口，配置 Nginx 并通过 HTTP-01 申请证书。只开放公网 80/443。注册失败可修正 DNS 后重试同一域名。
+4. 点击 **添加 Overleaf 服务器**，复制一次性配对链接。在节点维护页 `http://127.0.0.1:9899` 的右上角点击 **端口转发**，填入链接和本机 HTTP 端口，点击 **配对并转发**。默认目标是 `127.0.0.1:80`；若 Docker 映射到了 8080，则填写 8080。
+5. 在浏览器打开 `https://overleaf.example.com`。Overleaf 的站点地址应设置为这个 HTTPS 地址。需要停用时，管理员可撤销配对，节点也可以单独断开端口转发。
+
 ## 升级
 
 安装脚本会检查在线升级所需的目录权限。遇到权限提示或监听器启动限流时，见[执行器恢复步骤](docs/UPDATES.md#修复更新目录权限)。
@@ -240,4 +248,4 @@ flowchart LR
     node -->|127.0.0.1:22| sshd[节点 SSH 服务]
 ```
 
-NodeBridge 负责 SSH；Overleaf 等其他服务转发使用 [PortBridge](https://github.com/johnfan12/PortBridge)。更多细节：[架构](docs/ARCHITECTURE.md) · [迁移](docs/MIGRATION.md) · [Release 下载](https://github.com/johnfan12/NodeBridge/releases/latest)。
+SSH 和 Overleaf 使用独立的配对凭证与隧道。更多细节：[架构](docs/ARCHITECTURE.md) · [迁移](docs/MIGRATION.md) · [Release 下载](https://github.com/johnfan12/NodeBridge/releases/latest)。

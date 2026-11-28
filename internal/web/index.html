@@ -22,6 +22,7 @@
         <section id="pair-section" class="workspace-section"><h2>接入控制台</h2><p class="muted">粘贴 VPS 生成的配对链接。</p><form id="pair-form"><label>配对链接<textarea name="link" placeholder="nodebridge://pair/…" rows="4" required maxlength="8192" spellcheck="false"></textarea></label><button>配对并连接</button></form></section>
       </section>
     </section>
+    <section id="node-sites" hidden><div class="intro"><h1>端口转发</h1></div><div class="workspace workspace-body"><p id="site-status" role="status"></p><button type="button" id="site-stop" class="secondary" hidden>断开端口转发</button><form id="site-pair" class="row"><label>Overleaf 配对链接<input name="link" required placeholder="nodebridge://site/…"></label><label>本机 HTTP 端口<input name="port" type="number" min="1" max="65535" value="80" required></label><button>配对并转发</button></form></div></section>
     <section id="dashboard" hidden>
       <div class="intro"><h1>服务器一览</h1><p class="muted">选择服务器，获取 SSH 连接命令。</p></div>
       <section id="announcement-board" class="announcement-board" aria-labelledby="announcement-heading" hidden>

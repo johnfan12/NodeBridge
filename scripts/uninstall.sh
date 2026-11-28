@@ -39,6 +39,10 @@ for selected in "${modes[@]}"; do
     systemctl stop "nodebridge-update-$selected.service"
   fi
   rm -f -- "/etc/systemd/system/nodebridge-update-$selected.path" "/etc/systemd/system/nodebridge-update-$selected.service"
+  if [[ $selected == hub && -f /etc/systemd/system/nodebridge-sites.socket ]]; then
+    systemctl disable --now nodebridge-sites.socket
+    rm -f /etc/systemd/system/nodebridge-sites.socket /etc/systemd/system/nodebridge-sites@.service
+  fi
   unit=nodebridge-$selected.service
   # Fail before deleting anything if a running service could not be stopped.
   if [[ -e /etc/systemd/system/$unit ]] || systemctl cat "$unit" >/dev/null 2>&1; then

@@ -185,7 +185,7 @@ function renderNodeDetails(id) {
 
 async function boot() {
   config = await api('/api/config'); show('loading', false);
-  if (config.mode === 'node') { if (adminPage) { location.replace('/'); return; } show('node-page'); await refreshNode(); return; }
+  if (config.mode === 'node') { if (adminPage) { location.replace('/'); return; } show('node-page'); const toggle=button('端口转发', async()=>{const opening=$('node-sites').hidden;show('node-sites',opening);show('node-page',!opening);toggle.textContent=opening?'SSH':'端口转发';if(opening)await refreshSite();});$('toolbar').append(toggle); await refreshNode(); return; }
   if ($('allow-register')) $('allow-register').checked = config.allow_register;
   show('register-button', config.allow_register);
   try { me = await api('/api/me'); await dashboard(); } catch (e) { if (e.status === 401) { show('auth'); } else { throw e; } }
@@ -468,6 +468,7 @@ function activateTab(name, updateURL = false) {
     tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
     show(`panel-${tab.dataset.tab}`, selected);
   }
+  if (name==='sites') refreshSites().catch(e=>notice(e.message,true));
   if (updateURL) history.replaceState(null, '', `#${name}`);
 }
 for (const tab of document.querySelectorAll('[role="tab"][data-tab]')) {
@@ -499,6 +500,57 @@ on('ssh-dialog', 'close', () => show('ssh-feedback', false));
 on('ssh-form', 'input', () => { show('ssh-result', false); show('ssh-feedback', false); });
 setInterval(async () => {
   if (refreshBusy || document.hidden) return; refreshBusy = true;
-  try { if (config.mode === 'node') await refreshNode(); else if (me) { await Promise.all([adminPage ? refreshAdminNodes() : refreshNodes(), refreshAnnouncements(), ...(adminPage ? [refreshUpdates()] : [])]); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('server-detail', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else if (adminPage && $('tab-updates')?.getAttribute('aria-selected') === 'true') { $('update-feedback').textContent = '暂时无法连接控制台；升级重启期间会自动重试。'; } else notice(e.message, true); } finally { refreshBusy = false; }
+  try { if (config.mode === 'node') {if ($('node-sites').hidden) await refreshNode(); else await refreshSite();} else if (me) { await Promise.all([adminPage ? refreshAdminNodes() : refreshNodes(), refreshAnnouncements(), ...(adminPage ? [refreshUpdates(), ...($('panel-sites').hidden ? [] : [refreshSites()])] : [])]); } } catch (e) { if (e.status === 401) { me = null; $('ssh-dialog')?.close(); show('dashboard', false); show('server-detail', false); show('admin-panel', false); show('auth'); $('toolbar').replaceChildren(); } else if (adminPage && $('tab-updates')?.getAttribute('aria-selected') === 'true') { $('update-feedback').textContent = '暂时无法连接控制台；升级重启期间会自动重试。'; } else notice(e.message, true); } finally { refreshBusy = false; }
 }, 5000);
 boot().catch(e => { show('loading', false); notice(e.message, true); });
+
+async function refreshSite() {
+  const data = await api('/api/site');
+  show('site-stop', !!data.domain);
+  $('site-status').textContent = data.domain
+    ? `${data.domain} → 127.0.0.1:${data.port} · ${data.online ? '已连接' : '等待连接'}` : '等待配对';
+}
+form('site-pair', async (data, f) => {
+  await api('/api/site', 'POST', { link: data.get('link').trim(), port: Number(data.get('port')) });
+  f.elements.link.value = '';
+  await refreshSite();
+});
+let sitesKey = '';
+async function refreshSites() {
+  const rows = await api('/api/sites'), key = JSON.stringify(rows);
+  if (key === sitesKey) return;
+  const list = $('sites'); list.replaceChildren();
+  for (const site of rows) {
+    const row = el('div', undefined, 'admin-node-row'), actions = el('div', undefined, 'actions');
+    const path = '/api/sites/' + encodeURIComponent(site.Domain);
+    row.append(el('strong', site.Domain + ' · 127.0.0.1:' + site.Port));
+    if (!site.Ready) {
+      row.append(el('span', '注册未完成，请重新注册该域名')); list.append(row); continue;
+    }
+    row.append(el('span', site.Online ? '已连接' : site.Paired ? '等待节点连接' : '等待配对'));
+    actions.append(button('添加 Overleaf 服务器', async () => {
+      if (site.Paired && !confirm('新链接兑换后将替换当前服务器，继续？')) return;
+      const result = await api(path + '/invite', 'POST', {});
+      $('site-link').value = result.link; show('site-invite-result');
+    }));
+    if (site.Paired) actions.append(button('撤销配对', async () => {
+      if (!confirm('断开此域名的转发并撤销配对？')) return;
+      await api(path + '/pair', 'DELETE', {}); show('site-invite-result', false); await refreshSites();
+    }));
+    row.append(actions); list.append(row);
+  }
+  sitesKey = key;
+}
+form('site-register', async (data, f) => {
+  $('site-progress').textContent = '正在配置 Nginx 并申请证书…';
+  try {
+    await api('/api/sites', 'POST', { domain: data.get('domain') });
+    f.reset(); await refreshSites();
+    $('site-progress').textContent = '域名已注册，可以添加服务器。';
+  } catch (e) { $('site-progress').textContent = e.message; }
+});
+on('site-copy', 'click', () => copy($('site-link').value));
+on('site-stop', 'click', async () => {
+  try { await api('/api/site', 'DELETE', {}); await refreshSite(); }
+  catch (e) { notice(e.message, true); }
+});

@@ -47,25 +47,30 @@ type attempt struct {
 }
 
 type Hub struct {
-	Config        Config
-	Store         *store.Store
-	Fingerprint   string
-	mu            sync.Mutex
-	live          map[string]*liveNode
-	attempts      map[string]attempt
-	ctx           context.Context
-	closed        bool
-	paused        bool
-	dir           string
-	stopMonitor   chan struct{}
-	monitorDone   chan struct{}
-	updates       *updater.Manager
-	updateMu      sync.Mutex
-	latest        updater.Release
-	releaseClient *http.Client
-	releaseSlots  chan struct{}
-	version       string
-	releaseDial   func(context.Context, string) (net.Conn, error)
+	siteListeners  map[string]net.Listener
+	siteRegisterMu sync.Mutex
+	siteSocket     string
+	siteMu         sync.Mutex
+	siteSessions   map[string]*yamux.Session
+	Config         Config
+	Store          *store.Store
+	Fingerprint    string
+	mu             sync.Mutex
+	live           map[string]*liveNode
+	attempts       map[string]attempt
+	ctx            context.Context
+	closed         bool
+	paused         bool
+	dir            string
+	stopMonitor    chan struct{}
+	monitorDone    chan struct{}
+	updates        *updater.Manager
+	updateMu       sync.Mutex
+	latest         updater.Release
+	releaseClient  *http.Client
+	releaseSlots   chan struct{}
+	version        string
+	releaseDial    func(context.Context, string) (net.Conn, error)
 }
 
 func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
@@ -80,7 +85,7 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 		return nil, err
 	}
 	fp := hashBytes(cert.Certificate[0])
-	h := &Hub{Config: c, Store: s, Fingerprint: fp, live: map[string]*liveNode{}, attempts: map[string]attempt{}, ctx: ctx, dir: dir, stopMonitor: make(chan struct{}), monitorDone: make(chan struct{})}
+	h := &Hub{siteSocket: "/run/nodebridge-sites.sock", siteListeners: map[string]net.Listener{}, siteSessions: make(map[string]*yamux.Session), Config: c, Store: s, Fingerprint: fp, live: map[string]*liveNode{}, attempts: map[string]attempt{}, ctx: ctx, dir: dir, stopMonitor: make(chan struct{}), monitorDone: make(chan struct{})}
 	h.updates = updater.NewManager("hub", dir)
 	h.version = buildinfo.Version
 	h.releaseClient = updater.HTTPClient(nil)
@@ -136,6 +141,16 @@ func NewHub(ctx context.Context, dir string, c Config) (*Hub, error) {
 			go h.acceptSSH(n.ID, ln)
 		}
 	}
+	if err := s.View(func(st store.State) error {
+		for _, site := range st.Sites {
+			if err := h.bindSite(site.Domain, site.Port); err != nil {
+				slog.Error("恢复域名转发端口失败", "domain", site.Domain, "error", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		slog.Error("读取域名配置失败", "error", err)
+	}
 	go h.monitor()
 	return h, nil
 }
@@ -148,6 +163,14 @@ func (h *Hub) Close() error {
 	}
 	h.closed = true
 	close(h.stopMonitor)
+	h.siteMu.Lock()
+	for _, ln := range h.siteListeners {
+		ln.Close()
+	}
+	for _, s := range h.siteSessions {
+		s.Close()
+	}
+	h.siteMu.Unlock()
 	for _, l := range h.live {
 		if l.listener != nil {
 			l.listener.Close()
@@ -227,6 +250,7 @@ func (h *Hub) Handler() http.Handler {
 	})
 	mux.HandleFunc("POST /api/login", h.login)
 	mux.HandleFunc("POST /api/register", h.register)
+	h.siteRoutes(mux)
 	mux.HandleFunc("POST /api/enroll", h.enroll)
 	mux.HandleFunc("GET /api/connect", h.connect)
 	mux.Handle("GET /api/me", h.auth(false, func(w http.ResponseWriter, r *http.Request, u store.User) { u.Password = ""; respond(w, 200, u) }))

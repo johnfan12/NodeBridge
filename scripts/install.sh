@@ -183,7 +183,31 @@ Unit=nodebridge-update-$mode.service
 [Install]
 WantedBy=multi-user.target
 UNIT
+if [[ $mode == hub ]]; then
+  cat > /etc/systemd/system/nodebridge-sites.socket <<'UNIT'
+[Unit]
+Description=NodeBridge domain registration
+[Socket]
+ListenStream=/run/nodebridge-sites.sock
+SocketMode=0660
+SocketGroup=nodebridge
+Accept=yes
+[Install]
+WantedBy=sockets.target
+UNIT
+  cat > /etc/systemd/system/nodebridge-sites@.service <<'UNIT'
+[Service]
+ExecStart=/usr/local/bin/nodebridge site-worker
+StandardInput=socket
+StandardOutput=socket
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+RuntimeMaxSec=4min
+UNIT
+fi
 systemctl daemon-reload
+if [[ $mode == hub ]]; then systemctl enable --now nodebridge-sites.socket; fi
 for unit in "nodebridge-update-$mode.service" "nodebridge-update-$mode.path"; do
   if systemctl is-failed --quiet "$unit"; then systemctl reset-failed "$unit"; fi
 done
